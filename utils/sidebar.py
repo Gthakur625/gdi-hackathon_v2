@@ -303,67 +303,50 @@ def render_sidebar_and_get_data():
 
     # ── SOURCE 1: Google Sheet ────────────────────────────────────────────────
     if src_choice == "🔗 Google Sheet (Live)":
-        sb.markdown("""
-        <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);
-                    border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:0.8rem;
-                    color:#9CA3AF;line-height:1.5;">
-          Paste your Google Sheet URL below.<br>
-          Sheet must be set to <strong style="color:#34D399;">Anyone with link → Viewer</strong>.<br>
-          Data auto-refreshes every <strong style="color:#34D399;">5 minutes</strong>.
-        </div>""", unsafe_allow_html=True)
+        sb.markdown(
+            "<div style='font-size:0.78rem;color:#9CA3AF;margin-bottom:8px;line-height:1.5;'>"
+            "Paste URL · Share sheet as <b style='color:#34D399;'>Anyone with link → Viewer</b>"
+            "</div>", unsafe_allow_html=True)
 
-        saved_url = st.session_state.get("gsheet_url", "")
         gsheet_url = sb.text_input(
             "Google Sheet URL",
-            value=saved_url,
+            key="gsheet_url_input",
             placeholder="https://docs.google.com/spreadsheets/d/...",
             label_visibility="collapsed",
         )
 
-        col_connect, col_refresh = sb.columns([3, 2])
-        connect_clicked = col_connect.button("🔗 Connect Sheet", use_container_width=True)
-        refresh_clicked = col_refresh.button("🔄 Refresh", use_container_width=True)
+        if sb.button("🔗 Connect & Load Data", use_container_width=True, type="primary"):
+            if gsheet_url.strip():
+                st.session_state["gsheet_url"] = gsheet_url.strip()
+                st.cache_data.clear()
+            else:
+                sb.warning("Paste your Google Sheet URL above first")
 
-        if connect_clicked and gsheet_url:
-            st.session_state["gsheet_url"] = gsheet_url
-            st.session_state["gsheet_connected"] = True
-            _fetch_gsheet.clear()   # clear cache so it re-fetches
-
-        if refresh_clicked and st.session_state.get("gsheet_url"):
-            _fetch_gsheet.clear()   # force re-fetch
+        if sb.button("🔄 Refresh Now", use_container_width=True):
+            st.cache_data.clear()
 
         active_url = st.session_state.get("gsheet_url", "")
+        df_all = None
         if active_url:
             try:
-                csv_url  = _gsheet_to_csv_url(active_url)
-                raw      = _fetch_gsheet(csv_url)
-                df_all   = _parse_uploaded_mis(raw)
+                csv_url = _gsheet_to_csv_url(active_url)
+                raw     = _fetch_gsheet(csv_url)
+                df_all  = _parse_uploaded_mis(raw)
                 src_label = "Google Sheet"
-                sb.markdown(f"""
-                <div style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);
-                            border-radius:8px;padding:10px 12px;margin-top:8px;">
-                  <div style="color:#34D399;font-weight:700;font-size:0.85rem;">
-                    ✅ Connected — {len(df_all):,} rows</div>
-                  <div style="color:#6B7280;font-size:0.72rem;margin-top:2px;">
-                    Auto-refreshes every 5 min · Click 🔄 to force refresh</div>
-                </div>""", unsafe_allow_html=True)
+                sb.markdown(
+                    f"<div style='background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);"
+                    f"border-radius:8px;padding:8px 12px;margin-top:6px;'>"
+                    f"<span style='color:#34D399;font-weight:700;'>✅ {len(df_all):,} rows loaded</span>"
+                    f"<div style='color:#6B7280;font-size:0.7rem;margin-top:2px;'>Auto-refreshes every 5 min</div>"
+                    f"</div>", unsafe_allow_html=True)
             except Exception as e:
-                sb.error(f"❌ Could not load sheet: {e}")
-                sb.markdown("""
-                <div style="font-size:0.78rem;color:#9CA3AF;margin-top:6px;line-height:1.5;">
-                  <strong>Make sure:</strong><br>
-                  1. Sheet is shared as "Anyone with link → Viewer"<br>
-                  2. URL is a valid Google Sheets link
-                </div>""", unsafe_allow_html=True)
+                sb.error(f"❌ {e}")
+                sb.caption("Make sure sheet is shared as Anyone with link → Viewer")
                 df_all = None
 
         if df_all is None:
-            sb.markdown("""
-            <div style="color:#6B7280;font-size:0.78rem;text-align:center;
-                        padding:16px 0;line-height:1.6;">
-              Paste your Google Sheet URL above<br>and click <strong>Connect Sheet</strong>
-            </div>""", unsafe_allow_html=True)
-            df_all = _get_base_data()
+            sb.caption("Using demo data until sheet is connected")
+            df_all    = _get_base_data()
             src_label = "Demo Data"
 
     # ── SOURCE 2: File Upload ─────────────────────────────────────────────────
