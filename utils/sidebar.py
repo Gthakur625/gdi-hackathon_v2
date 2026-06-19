@@ -3,10 +3,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import io
+import warnings
 from datetime import datetime, timedelta
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from data_generator import generate_shipment_data
+
+# Excel epoch (accounts for Excel's 1900 leap year bug)
+_EXCEL_EPOCH = datetime(1899, 12, 30)
+
+def _excel_to_datetime(v):
+    """Convert Excel serial number OR date string to datetime."""
+    try:
+        f = float(str(v).replace(",","").strip())
+        if 30000 < f < 60000:          # plausible Excel date (1982 – 2064)
+            return _EXCEL_EPOCH + timedelta(days=f)
+    except (ValueError, TypeError):
+        pass
+    return pd.to_datetime(v, errors="coerce", dayfirst=True)
 
 STANDARD_COURIERS = [
     "Delhivery", "Bluedart", "Xpressbees", "Shadowfax",
@@ -51,7 +66,11 @@ def _gsheet_to_csv_url(url_or_id: str):
 
 @st.cache_data(ttl=300)   # refresh every 5 minutes automatically
 def _fetch_gsheet(csv_url: str):
-    df = pd.read_csv(csv_url)
+    import requests, io, warnings
+    warnings.filterwarnings("ignore")
+    resp = requests.get(csv_url, verify=False, timeout=30)
+    resp.raise_for_status()
+    df = pd.read_csv(io.StringIO(resp.text))
     return df
 
 
@@ -177,13 +196,19 @@ def _parse_uploaded_mis(df):
 
     df["order_value"]   = pd.to_numeric(df["order_value"],   errors="coerce").fillna(999)
     df["attempt_count"] = pd.to_numeric(df["attempt_count"], errors="coerce").fillna(1).astype(int)
-    df["shipment_date"] = pd.to_datetime(df["shipment_date"], errors="coerce").fillna(pd.Timestamp.now())
+
+    # Handle Excel serial dates AND regular date strings
+    df["shipment_date"] = df["shipment_date"].apply(_excel_to_datetime)
+    df["shipment_date"] = pd.to_datetime(df["shipment_date"], errors="coerce")
+    df["shipment_date"] = df["shipment_date"].fillna(pd.Timestamp.now())
 
     def clean_status(v):
         v = str(v).lower().strip()
+        if "rto" in v:                   return "RTO"   # catch "rto delivered" before "deliver"
         if "deliver" in v:               return "Delivered"
-        if "rto" in v or "return" in v:  return "RTO"
+        if "return" in v:                return "RTO"
         if "ndr" in v or "undeliver" in v or "attempt" in v or "fail" in v: return "NDR"
+        if "transit" in v or "out_for" in v or "ofd" in v: return "Delivered"
         return "Delivered"
     df["delivery_status"] = df["delivery_status"].apply(clean_status)
 
