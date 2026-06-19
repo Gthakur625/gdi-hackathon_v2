@@ -26,6 +26,38 @@ def _excel_to_datetime(v):
 # Default live database — auto-loads on every session start
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/13hsbrb6Zyb7IgXCSMk-a4hl_vGCajVt6q66n3cVVDfo/edit?gid=0#gid=0"
 
+# ── Metabase helpers ──────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300)
+def _fetch_metabase(base_url: str, question_id: int, auth_value: str, auth_type: str = "api_key"):
+    import requests, io
+    if auth_type == "api_key":
+        headers = {"x-api-key": auth_value}
+    else:
+        headers = {"X-Metabase-Session": auth_value}
+    url = f"{base_url.rstrip('/')}/api/card/{question_id}/query/csv"
+    resp = requests.post(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    df = pd.read_csv(io.StringIO(resp.text))
+    return df
+
+
+def _metabase_login(base_url: str, username: str, password: str):
+    import requests
+    url = f"{base_url.rstrip('/')}/api/session"
+    resp = requests.post(url, json={"username": username, "password": password}, timeout=15)
+    resp.raise_for_status()
+    return resp.json().get("id", "")
+
+
+def _metabase_verify_api_key(base_url: str, api_key: str):
+    import requests
+    headers = {"x-api-key": api_key}
+    url = f"{base_url.rstrip('/')}/api/user/current"
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
 STANDARD_COURIERS = [
     "Delhivery", "Bluedart", "Xpressbees", "Shadowfax",
     "PiknDel", "Blitz", "Ekart",
@@ -324,14 +356,15 @@ def render_sidebar_and_get_data():
 
     # Remember the last selected source across page navigations
     default_src_idx = st.session_state.get("src_choice_idx", 0)
+    SRC_OPTIONS = ["🔗 Google Sheet (Live)", "📊 Metabase (Live)", "📁 Upload CSV / Excel", "📋 Demo Data"]
     src_choice = sb.radio(
         "Data Source",
-        ["🔗 Google Sheet (Live)", "📁 Upload CSV / Excel", "📋 Demo Data"],
+        SRC_OPTIONS,
         index=st.session_state.get("src_choice_idx", default_src_idx),
         label_visibility="collapsed",
         key="src_radio",
     )
-    st.session_state["src_choice_idx"] = ["🔗 Google Sheet (Live)","📁 Upload CSV / Excel","📋 Demo Data"].index(src_choice)
+    st.session_state["src_choice_idx"] = SRC_OPTIONS.index(src_choice)
 
     df_all  = None
     src_label = ""
@@ -385,7 +418,136 @@ def render_sidebar_and_get_data():
             df_all    = _get_base_data()
             src_label = "Demo Data"
 
-    # ── SOURCE 2: File Upload ─────────────────────────────────────────────────
+    # ── SOURCE 2: Metabase ───────────────────────────────────────────────────
+    elif src_choice == "📊 Metabase (Live)":
+        sb.markdown(
+            "<div style='font-size:0.78rem;color:#9CA3AF;margin-bottom:8px;line-height:1.5;'>"
+            "Connect to your Metabase instance for <b style='color:#60A5FA;'>real-time analytics</b>"
+            "</div>", unsafe_allow_html=True)
+
+        mb_auth_mode = sb.radio(
+            "Auth Method",
+            ["🔑 API Key", "👤 Username / Password"],
+            index=0,
+            label_visibility="collapsed",
+            key="mb_auth_mode",
+            horizontal=True,
+        )
+
+        sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>Metabase URL</div>",
+                    unsafe_allow_html=True)
+        mb_url = sb.text_input(
+            "Metabase URL",
+            value=st.session_state.get("metabase_url", ""),
+            placeholder="https://metabase.yourcompany.com",
+            label_visibility="collapsed",
+        )
+
+        if mb_auth_mode == "🔑 API Key":
+            sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>API Key</div>",
+                        unsafe_allow_html=True)
+            mb_api_key = sb.text_input(
+                "API Key",
+                type="password",
+                value=st.session_state.get("metabase_api_key", ""),
+                placeholder="mb_xxxxxxxx...",
+                label_visibility="collapsed",
+            )
+        else:
+            sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>Email</div>",
+                        unsafe_allow_html=True)
+            mb_user = sb.text_input(
+                "Metabase Email",
+                value=st.session_state.get("metabase_user", ""),
+                placeholder="user@company.com",
+                label_visibility="collapsed",
+            )
+            sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>Password</div>",
+                        unsafe_allow_html=True)
+            mb_pass = sb.text_input(
+                "Password",
+                type="password",
+                value="",
+                placeholder="Password",
+                label_visibility="collapsed",
+            )
+
+        sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>Question / Card ID</div>",
+                    unsafe_allow_html=True)
+        mb_qid = sb.text_input(
+            "Question / Card ID",
+            value=st.session_state.get("metabase_qid", ""),
+            placeholder="e.g. 42 (saved question ID)",
+            label_visibility="collapsed",
+        )
+
+        if sb.button("📊 Connect Metabase", use_container_width=True, type="primary"):
+            if mb_auth_mode == "🔑 API Key":
+                if mb_url and mb_api_key and mb_qid:
+                    try:
+                        with sb.spinner("Verifying API key..."):
+                            _metabase_verify_api_key(mb_url.strip(), mb_api_key.strip())
+                        st.session_state["metabase_url"]       = mb_url.strip()
+                        st.session_state["metabase_api_key"]   = mb_api_key.strip()
+                        st.session_state["metabase_auth_type"] = "api_key"
+                        st.session_state["metabase_qid"]       = mb_qid.strip()
+                        st.session_state.pop("metabase_token", None)
+                        st.cache_data.clear()
+                        sb.success("✅ API key verified — connected to Metabase")
+                    except Exception as e:
+                        sb.error(f"❌ API key invalid: {e}")
+                else:
+                    sb.warning("Fill in Metabase URL, API Key, and Question ID")
+            else:
+                if mb_url and mb_user and mb_pass and mb_qid:
+                    try:
+                        with sb.spinner("Authenticating..."):
+                            token = _metabase_login(mb_url.strip(), mb_user.strip(), mb_pass)
+                        st.session_state["metabase_url"]       = mb_url.strip()
+                        st.session_state["metabase_user"]      = mb_user.strip()
+                        st.session_state["metabase_token"]     = token
+                        st.session_state["metabase_auth_type"] = "session"
+                        st.session_state["metabase_qid"]       = mb_qid.strip()
+                        st.session_state.pop("metabase_api_key", None)
+                        st.cache_data.clear()
+                        sb.success("✅ Connected to Metabase")
+                    except Exception as e:
+                        sb.error(f"❌ Auth failed: {e}")
+                else:
+                    sb.warning("Fill in all Metabase fields above")
+
+        if sb.button("🔄 Refresh Data", use_container_width=True, key="mb_refresh"):
+            st.cache_data.clear()
+
+        # Determine active auth
+        mb_active_url  = st.session_state.get("metabase_url")
+        mb_active_qid  = st.session_state.get("metabase_qid")
+        mb_auth_type   = st.session_state.get("metabase_auth_type", "api_key")
+        mb_auth_value  = (st.session_state.get("metabase_api_key")
+                          if mb_auth_type == "api_key"
+                          else st.session_state.get("metabase_token"))
+
+        if mb_auth_value and mb_active_url and mb_active_qid:
+            try:
+                raw = _fetch_metabase(mb_active_url, int(mb_active_qid), mb_auth_value, mb_auth_type)
+                df_all  = _parse_uploaded_mis(raw)
+                src_label = "Metabase"
+                sb.markdown(
+                    f"<div style='background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);"
+                    f"border-radius:8px;padding:8px 12px;margin-top:6px;'>"
+                    f"<span style='color:#60A5FA;font-weight:700;'>✅ {len(df_all):,} rows from Metabase</span>"
+                    f"<div style='color:#6B7280;font-size:0.7rem;margin-top:2px;'>Question #{mb_active_qid} · Auto-refreshes every 5 min</div>"
+                    f"</div>", unsafe_allow_html=True)
+            except Exception as e:
+                sb.error(f"❌ Query error: {e}")
+                sb.caption("Check your Question ID and permissions")
+
+        if df_all is None:
+            sb.caption("Using demo data until Metabase is connected")
+            df_all    = _get_base_data()
+            src_label = "Demo Data"
+
+    # ── SOURCE 3: File Upload ─────────────────────────────────────────────────
     elif src_choice == "📁 Upload CSV / Excel":
         sb.download_button(
             "📥 Download Template CSV",

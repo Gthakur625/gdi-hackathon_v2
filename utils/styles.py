@@ -100,5 +100,73 @@ def apply_styles():
     .qchip{display:inline-block;background:rgba(79,70,229,0.10);color:#818CF8;
            border:1px solid rgba(79,70,229,0.25);padding:4px 12px;border-radius:99px;
            font-size:0.77rem;font-weight:600;margin:3px 3px 0 0;}
+
+    /* ── Floating Joker Chat Button ── */
+    .joker-float-btn {
+        position: fixed;
+        bottom: 28px;
+        right: 28px;
+        z-index: 99999;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 50%, #6D28D9 100%);
+        border: 3px solid rgba(255,255,255,0.15);
+        box-shadow: 0 6px 24px rgba(124,58,237,0.45), 0 0 0 4px rgba(124,58,237,0.12);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+        animation: joker-pulse 2.5s ease-in-out infinite;
+    }
+    .joker-float-btn:hover {
+        transform: scale(1.12) rotate(5deg);
+        box-shadow: 0 8px 32px rgba(124,58,237,0.6), 0 0 0 6px rgba(124,58,237,0.2);
+    }
+    .joker-float-btn:active { transform: scale(0.95); }
+    @keyframes joker-pulse {
+        0%, 100% { box-shadow: 0 6px 24px rgba(124,58,237,0.45), 0 0 0 4px rgba(124,58,237,0.12); }
+        50%      { box-shadow: 0 6px 28px rgba(124,58,237,0.6),  0 0 0 8px rgba(124,58,237,0.08); }
+    }
+    .joker-face {
+        font-size: 36px;
+        line-height: 1;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    }
+    .joker-tooltip {
+        position: fixed;
+        bottom: 98px;
+        right: 28px;
+        z-index: 99998;
+        background: #1F2937;
+        color: #E0E7FF;
+        padding: 8px 14px;
+        border-radius: 10px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        font-family: 'Outfit', sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        border: 1px solid #374151;
+        white-space: nowrap;
+        animation: joker-tooltip-in 0.3s ease;
+        pointer-events: none;
+    }
+    .joker-tooltip::after {
+        content: '';
+        position: absolute;
+        bottom: -6px;
+        right: 24px;
+        width: 12px;
+        height: 12px;
+        background: #1F2937;
+        border-right: 1px solid #374151;
+        border-bottom: 1px solid #374151;
+        transform: rotate(45deg);
+    }
+    @keyframes joker-tooltip-in {
+        from { opacity:0; transform:translateY(6px); }
+        to   { opacity:1; transform:translateY(0); }
+    }
     </style>
     """, unsafe_allow_html=True)
