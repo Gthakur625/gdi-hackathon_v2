@@ -161,8 +161,8 @@ nav_items = [
     ("🔍","Root Cause Analysis","Why delivery is failing — auto-detected anomalies"),
     ("📦","SKU Intelligence","Which product is underperforming and why"),
     ("🚀","ATS Recommendations","Ranked VAS products mapped to your exact problems"),
-    ("📞","AI Calling Engine","Priority calling queue with recovery probabilities"),
-    ("💬","WhatsApp NDR","COD NDR engagement funnel and queue"),
+    ("📞","AI Calling Engine","AI Calling & Order Confirmation — priority queue with recovery probabilities"),
+    ("💬","WhatsApp AI NDR","COD NDR engagement funnel via WhatsApp AI"),
     ("🤖","AI Chat Assistant","Ask anything — answers grounded in your data"),
     ("📊","Impact Simulator","Model revenue impact of each VAS activation"),
 ]

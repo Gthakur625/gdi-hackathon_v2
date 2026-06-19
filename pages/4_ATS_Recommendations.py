@@ -98,11 +98,11 @@ if active_vas:
 # Full VAS catalogue
 with st.expander("📚 Full Velocity VAS Catalogue"):
     vas_info = [
-        ("ATS Core Routing",         "Pincode-level smart courier allocation",             "Included",      "#818CF8"),
-        ("ATS Address Verification", "AI address correction at checkout — reduces RTO 4–6%","Triggered by RTO > 20%","#34D399"),
-        ("ATS AI Calling Suite",     "Automated IVR calling for NDR resolution — 38% recovery","Triggered by NDR > 15%","#60A5FA"),
-        ("ATS WhatsApp NDR",         "WhatsApp buyer nudges for COD non-delivery — reduces COD RTO 8%","Triggered by COD > 60%","#FBBF24"),
-        ("ATS Secure (Prepaid Push)","Checkout incentive to convert COD to Prepaid",       "Triggered by COD > 70%","#C084FC"),
+        ("AI Calling",                "Outbound AI calls for NDR recovery — 38% success rate",           "Triggered by NDR > 15%",        "#818CF8"),
+        ("Order Confirmation Via AI", "AI call confirms order intent before dispatch — reduces fake RTOs","Triggered by RTO > 15% or COD > 50%","#34D399"),
+        ("WhatsApp AI NDR",           "WhatsApp nudges for COD non-delivery — reduces COD RTO ~8%",      "Triggered by COD > 60% + NDR > 10%","#FBBF24"),
+        ("ATS Address Verification",  "AI address correction at checkout — reduces RTO 4–6% (via ATS)",  "Triggered by RTO > 20% · New ATS Feature","#60A5FA"),
+        ("ATS Smart Routing",         "Pincode-level courier allocation to optimise delivery rates",      "Triggered by Courier Variance > 15%","#C084FC"),
     ]
     for name, desc, trigger, color in vas_info:
         is_active = name in active_vas

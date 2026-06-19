@@ -3,44 +3,44 @@ import numpy as np
 
 VAS_CATALOG = [
     {
-        "name":    "ATS AI Calling Suite",
+        "name":    "AI Calling",
         "trigger": lambda m: m["ndr_pct"] > 15,
-        "impact":  lambda m: f"Recover ~{int(m['ndr_count']*0.38)} NDR shipments/week",
+        "impact":  lambda m: f"Recover ~{int(m['ndr_count']*0.38)} NDR shipments via AI-powered outbound calling",
         "revenue": lambda m: int(m["ndr_count"] * 0.38 * m["avg_order_value"]),
         "badge":   "AI Calling",
         "color":   "#818CF8",
     },
     {
-        "name":    "ATS Address Verification",
-        "trigger": lambda m: m["rto_pct"] > 20,
-        "impact":  lambda m: f"Reduce RTO by ~4–6% (~{int(m['total']*0.05)} shipments)",
-        "revenue": lambda m: int(m["total"] * 0.05 * m["avg_order_value"]),
-        "badge":   "Address Verification",
+        "name":    "Order Confirmation Via AI",
+        "trigger": lambda m: m["rto_pct"] > 15 or m["cod_pct"] > 50,
+        "impact":  lambda m: f"Confirm intent before dispatch — save ~{int(m['rto_count']*0.12)} fake/RTO orders",
+        "revenue": lambda m: int(m["rto_count"] * 0.12 * m["avg_order_value"]),
+        "badge":   "Order Confirmation",
         "color":   "#34D399",
     },
     {
-        "name":    "ATS WhatsApp NDR",
+        "name":    "WhatsApp AI NDR",
         "trigger": lambda m: m["cod_pct"] > 60 and m["ndr_pct"] > 10,
-        "impact":  lambda m: f"Reduce COD RTO by ~8% (~{int(m['rto_count']*0.08)} saved)",
+        "impact":  lambda m: f"Reduce COD RTO by ~8% (~{int(m['rto_count']*0.08)} saved) via WhatsApp nudges",
         "revenue": lambda m: int(m["rto_count"] * 0.08 * m["avg_order_value"]),
-        "badge":   "WhatsApp NDR",
+        "badge":   "WhatsApp AI NDR",
         "color":   "#FBBF24",
     },
     {
-        "name":    "ATS Secure (Prepaid Push)",
-        "trigger": lambda m: m["cod_pct"] > 70,
-        "impact":  lambda m: f"Convert ~15% COD to Prepaid (~{int(m['cod_count']*0.15)} orders)",
-        "revenue": lambda m: int(m["cod_count"] * 0.15 * m["avg_order_value"] * 0.12),
-        "badge":   "Prepaid Conversion",
-        "color":   "#C084FC",
+        "name":    "ATS Address Verification",
+        "trigger": lambda m: m["rto_pct"] > 20,
+        "impact":  lambda m: f"Reduce RTO by ~4–6% (~{int(m['total']*0.05)} shipments) via AI address correction at checkout",
+        "revenue": lambda m: int(m["total"] * 0.05 * m["avg_order_value"]),
+        "badge":   "ATS Recommended",
+        "color":   "#60A5FA",
     },
     {
         "name":    "ATS Smart Routing",
         "trigger": lambda m: m["courier_score_variance"] > 15,
-        "impact":  lambda m: "Improve delivery by 3–5% via pincode-level routing",
+        "impact":  lambda m: "Improve delivery by 3–5% via pincode-level courier routing intelligence",
         "revenue": lambda m: int(m["total"] * 0.04 * m["avg_order_value"]),
         "badge":   "Smart Routing",
-        "color":   "#60A5FA",
+        "color":   "#C084FC",
     },
 ]
 
@@ -91,7 +91,7 @@ def compute_health_score(m):
 def compute_vas_adoption_score(df):
     if "vas_active" not in df.columns:
         return 20
-    all_vas = ["ATS Core Routing","ATS Address Verification","ATS AI Calling","ATS WhatsApp NDR"]
+    all_vas = ["AI Calling","Order Confirmation Via AI","WhatsApp AI NDR","ATS Address Verification"]
     active_sets = df["vas_active"].dropna().str.split(", ")
     unique_active = set()
     for s in active_sets:

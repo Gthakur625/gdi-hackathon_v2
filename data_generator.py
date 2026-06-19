@@ -40,18 +40,34 @@ def generate_shipment_data(num_records=1000, seed=42):
         "Uttar Pradesh":"20","Bihar":"80","West Bengal":"70","Gujarat":"38",
         "Rajasthan":"30","Haryana":"12",
     }
-    couriers = ["ATS (Velocity)","Nimbus Express","Swift Courier","Apex Logistix"]
+    couriers = [
+        "Delhivery","Bluedart","Xpressbees","Shadowfax",
+        "PiknDel","Blitz","Ekart",
+        "ATS (Amazon Transport Services)","Elastic Run","DTDC",
+    ]
+    courier_delivery_mod = {
+        "ATS (Amazon Transport Services)": +0.10,
+        "Bluedart":    +0.07,
+        "Delhivery":   +0.03,
+        "Xpressbees":  +0.01,
+        "Shadowfax":   -0.02,
+        "DTDC":        -0.03,
+        "Ekart":       -0.05,
+        "PiknDel":     -0.08,
+        "Blitz":       -0.10,
+        "Elastic Run": -0.12,
+    }
     ndr_reasons_by_type = {
         "absent":"Customer Not Available","address":"Wrong / Incomplete Address",
         "refused":"Customer Refused Delivery","future":"Delivery Requested for Later",
         "other":"Door Locked / Building Issue",
     }
     seller_vas = {
-        "Apex Retail":     ["ATS Core Routing"],
-        "Zenith Fashion":  ["ATS Core Routing","ATS Address Verification"],
-        "Vortex Commerce": ["ATS Core Routing","ATS AI Calling"],
-        "Nova Wellness":   ["ATS Core Routing","ATS WhatsApp NDR"],
-        "Quantum Goods":   ["ATS Core Routing"],
+        "Apex Retail":     ["AI Calling"],
+        "Zenith Fashion":  ["AI Calling","WhatsApp AI NDR"],
+        "Vortex Commerce": ["AI Calling","Order Confirmation Via AI"],
+        "Nova Wellness":   ["WhatsApp AI NDR"],
+        "Quantum Goods":   ["AI Calling","Order Confirmation Via AI","WhatsApp AI NDR"],
     }
 
     data = []
@@ -67,7 +83,7 @@ def generate_shipment_data(num_records=1000, seed=42):
         state   = np.random.choice(states, p=state_probs)
         pincode = state_pincode_prefix[state]+"".join([str(np.random.randint(0,10)) for _ in range(4)])
 
-        courier = np.random.choice(couriers, p=[0.45,0.25,0.18,0.12])
+        courier = np.random.choice(couriers, p=[0.25,0.12,0.14,0.11,0.06,0.05,0.08,0.09,0.05,0.05])
         cod_prob = {"Apex Retail":0.76,"Zenith Fashion":0.58}.get(seller, 0.45)
         payment_type = "COD" if np.random.rand() < cod_prob else "Prepaid"
 
@@ -81,10 +97,7 @@ def generate_shipment_data(num_records=1000, seed=42):
         shipment_date = (start_date + timedelta(days=days_offset)).strftime("%Y-%m-%d")
 
         delivery_score = 0.85
-        if courier=="ATS (Velocity)":  delivery_score += 0.10
-        elif courier=="Nimbus Express": delivery_score -= 0.20
-        elif courier=="Swift Courier":  delivery_score += 0.02
-        elif courier=="Apex Logistix":  delivery_score -= 0.05
+        delivery_score += courier_delivery_mod.get(courier, 0)
         if state=="Bihar":              delivery_score -= 0.22
         elif state=="Uttar Pradesh":    delivery_score -= 0.12
         if payment_type=="COD":         delivery_score -= 0.15

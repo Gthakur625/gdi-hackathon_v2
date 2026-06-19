@@ -7,6 +7,42 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from data_generator import generate_shipment_data
 
+STANDARD_COURIERS = [
+    "Delhivery", "Bluedart", "Xpressbees", "Shadowfax",
+    "PiknDel", "Blitz", "Ekart",
+    "ATS (Amazon Transport Services)", "Elastic Run", "DTDC",
+]
+
+def _normalize_courier(name):
+    if not isinstance(name, str):
+        return name
+    n = name.strip().lower()
+    if "amazon" in n or n.startswith("ats"):
+        return "ATS (Amazon Transport Services)"
+    if "delhivery" in n:
+        return "Delhivery"
+    if "bluedart" in n or "blue dart" in n:
+        return "Bluedart"
+    if "xpressbees" in n or "xpress bees" in n:
+        return "Xpressbees"
+    if "shadowfax" in n:
+        return "Shadowfax"
+    if "pikndel" in n or "pikngo" in n or "pikn" in n:
+        return "PiknDel"
+    if "blitz" in n:
+        return "Blitz"
+    if "ekart" in n or "e-kart" in n or "e kart" in n:
+        return "Ekart"
+    if "elastic" in n:
+        return "Elastic Run"
+    if "dtdc" in n:
+        return "DTDC"
+    for standard in STANDARD_COURIERS:
+        if standard.lower() in n or n in standard.lower():
+            return standard
+    return name
+
+
 def _parse_uploaded_mis(df):
     col_mapping = {}; mapped = set()
     for col in df.columns:
@@ -33,7 +69,7 @@ def _parse_uploaded_mis(df):
         "seller_name":    lambda d: "Apex Retail",
         "delivery_status":lambda d: "Delivered",
         "order_value":    lambda d: 999,
-        "courier":        lambda d: "ATS (Velocity)",
+        "courier":        lambda d: "Delhivery",
         "sku_category":   lambda d: "General",
         "state":          lambda d: np.random.choice(["Bihar","Maharashtra","Karnataka","Delhi","Uttar Pradesh"], size=len(d)),
         "pincode":        lambda d: "560001",
@@ -53,6 +89,8 @@ def _parse_uploaded_mis(df):
             df[col] = fn(df)
     df["order_value"] = pd.to_numeric(df["order_value"], errors="coerce").fillna(999)
     df["shipment_date"] = pd.to_datetime(df["shipment_date"])
+    if "courier" in df.columns:
+        df["courier"] = df["courier"].apply(_normalize_courier)
     def clean_status(v):
         v = str(v).lower().strip()
         if "deliver" in v: return "Delivered"
@@ -96,7 +134,7 @@ def render_sidebar_and_get_data():
         "Product Name":["Premium Cotton T-Shirt","Smart Watch V2","Wireless Keyboard & Mouse"],
         "SKU ID":["SKU-APP-01","SKU-FSH-10","SKU-ELC-51"],
         "Amount":[1499,2999,1899],
-        "Courier Partner":["ATS (Velocity)","Nimbus Express","Swift Courier"],
+        "Courier Partner":["Delhivery","Bluedart","Xpressbees"],
     })
     st.sidebar.download_button(
         "📥 Download Template MIS CSV", _convert_to_csv(template_df),
