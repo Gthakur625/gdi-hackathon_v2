@@ -48,22 +48,19 @@ VAS_CATALOG = [
 def compute_kpis(df):
     total = len(df)
 
-    # Terminal shipments only (Delivered + RTO) — excludes In Transit / Pending
-    # Delivery % = Delivered / (Delivered + RTO) based on pickup cohort
-    terminal = df[df["delivery_status"].isin(["Delivered", "RTO"])]
-    terminal_total = len(terminal)
-
-    delivered = (terminal["delivery_status"] == "Delivered").sum()
-    rto       = (terminal["delivery_status"] == "RTO").sum()
+    # Delivery % = Delivered / ALL shipments picked up in period
+    # Denominator = every shipment picked up in the selected pickup date range
+    # (includes In Transit, NDR, RTO, Delivered — cohort based on pickup date)
+    delivered = (df["delivery_status"] == "Delivered").sum()
+    rto       = (df["delivery_status"] == "RTO").sum()
     ndr       = (df["ndr_status"] == "Raised").sum() if "ndr_status" in df.columns else 0
     cod       = (df["payment_type"] == "COD").sum()
     avg_ov    = df["order_value"].mean() if total > 0 else 0
 
-    # Delivery & RTO % calculated on terminal orders (honest cohort rate)
-    delivery_pct = delivered / terminal_total * 100 if terminal_total else 0
-    rto_pct      = rto      / terminal_total * 100 if terminal_total else 0
-    ndr_pct      = ndr      / total          * 100 if total else 0
-    cod_pct      = cod      / total          * 100 if total else 0
+    delivery_pct = delivered / total * 100 if total else 0
+    rto_pct      = rto      / total * 100 if total else 0
+    ndr_pct      = ndr      / total * 100 if total else 0
+    cod_pct      = cod      / total * 100 if total else 0
 
     courier_perf = compute_courier_perf(df)
     c_var = courier_perf["delivery_rate"].std() if len(courier_perf) > 1 else 0
@@ -110,10 +107,7 @@ def compute_vas_adoption_score(df):
 def compute_courier_perf(df):
     if len(df) == 0:
         return pd.DataFrame()
-    t = df[df["delivery_status"].isin(["Delivered","RTO"])]
-    if len(t) == 0:
-        return pd.DataFrame()
-    g = t.groupby("courier").agg(
+    g = df.groupby("courier").agg(
         total    =("delivery_status","count"),
         delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
         rto      =("delivery_status", lambda x: (x=="RTO").sum()),
@@ -126,10 +120,7 @@ def compute_courier_perf(df):
 def compute_state_perf(df):
     if len(df) == 0:
         return pd.DataFrame()
-    t = df[df["delivery_status"].isin(["Delivered","RTO"])]
-    if len(t) == 0:
-        return pd.DataFrame()
-    g = t.groupby("state").agg(
+    g = df.groupby("state").agg(
         total    =("delivery_status","count"),
         delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
         rto      =("delivery_status", lambda x: (x=="RTO").sum()),

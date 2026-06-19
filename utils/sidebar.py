@@ -104,6 +104,10 @@ def _parse_uploaded_mis(df):
     src = find_col("shipment_created_at","created_at","shipment_date","date","order_date")
     if src and src != "shipment_date":         rename[src] = "shipment_date"
 
+    # pickup_date — primary cohort date for delivery % analysis
+    src = find_col("pickup_date","pickup_Created_at","pickup_created_at","pickupdate","picked_date")
+    if src and src != "pickup_date":           rename[src] = "pickup_date"
+
     src = find_col("delivery_state","state","dest_state")
     if src and src != "state":                 rename[src] = "state"
 
@@ -197,10 +201,19 @@ def _parse_uploaded_mis(df):
     df["order_value"]   = pd.to_numeric(df["order_value"],   errors="coerce").fillna(999)
     df["attempt_count"] = pd.to_numeric(df["attempt_count"], errors="coerce").fillna(1).astype(int)
 
-    # Handle Excel serial dates AND regular date strings
+    # Handle Excel serial dates AND regular date strings for shipment_date
     df["shipment_date"] = df["shipment_date"].apply(_excel_to_datetime)
     df["shipment_date"] = pd.to_datetime(df["shipment_date"], errors="coerce")
     df["shipment_date"] = df["shipment_date"].fillna(pd.Timestamp.now())
+
+    # Parse pickup_date (primary cohort date for delivery % analysis)
+    if "pickup_date" in df.columns:
+        df["pickup_date"] = df["pickup_date"].apply(_excel_to_datetime)
+        df["pickup_date"] = pd.to_datetime(df["pickup_date"], errors="coerce")
+        # Fill missing pickup_date from shipment_date
+        df["pickup_date"] = df["pickup_date"].fillna(df["shipment_date"])
+    else:
+        df["pickup_date"] = df["shipment_date"]
 
     def clean_status(v):
         v = str(v).lower().strip()
@@ -392,11 +405,16 @@ def render_sidebar_and_get_data():
         src_label = "Demo Data"
         sb.info("Showing demo data. Connect a Google Sheet or upload your CSV to analyse real data.")
 
-    # ── Ensure date column ────────────────────────────────────────────────────
+    # ── Ensure date columns ───────────────────────────────────────────────────
     if "shipment_date" not in df_all.columns:
         df_all["shipment_date"] = pd.Timestamp.now()
     df_all["shipment_date"] = pd.to_datetime(df_all["shipment_date"], errors="coerce")
     df_all["shipment_date"].fillna(pd.Timestamp.now(), inplace=True)
+
+    if "pickup_date" not in df_all.columns:
+        df_all["pickup_date"] = df_all["shipment_date"]
+    df_all["pickup_date"] = pd.to_datetime(df_all["pickup_date"], errors="coerce")
+    df_all["pickup_date"].fillna(df_all["shipment_date"], inplace=True)
 
     # ── Filters ───────────────────────────────────────────────────────────────
     sb.markdown("<hr style='border:0;height:1px;background:#1F2937;margin:16px 0 12px;'>",
@@ -408,9 +426,14 @@ def render_sidebar_and_get_data():
     sellers     = sorted(df_all["seller_name"].unique().tolist())
     sel_sellers = sb.multiselect("Seller / Client", sellers, default=sellers)
 
-    min_d = df_all["shipment_date"].min().date()
-    max_d = df_all["shipment_date"].max().date()
-    dates = sb.date_input("Date Range", [min_d, max_d], min_value=min_d, max_value=max_d)
+    # Date filter uses PICKUP DATE as cohort anchor
+    min_d = df_all["pickup_date"].min().date()
+    max_d = df_all["pickup_date"].max().date()
+    sb.markdown("<div style='color:#9CA3AF;font-size:0.72rem;margin-bottom:2px;'>"
+                "📦 Pickup Date Range (cohort basis)</div>", unsafe_allow_html=True)
+    dates = sb.date_input("Pickup Date Range", [min_d, max_d],
+                          min_value=min_d, max_value=max_d,
+                          label_visibility="collapsed")
 
     couriers     = sorted(df_all["courier"].unique().tolist())
     sel_couriers = sb.multiselect("Courier (3PL)", couriers, default=couriers)
@@ -419,8 +442,9 @@ def render_sidebar_and_get_data():
     if sel_sellers:
         df = df[df["seller_name"].isin(sel_sellers)]
     if len(dates) == 2:
-        df = df[(df["shipment_date"] >= pd.to_datetime(dates[0])) &
-                (df["shipment_date"] <= pd.to_datetime(dates[1]))]
+        # Filter by PICKUP DATE — this defines the cohort denominator
+        df = df[(df["pickup_date"] >= pd.to_datetime(dates[0])) &
+                (df["pickup_date"] <= pd.to_datetime(dates[1]))]
     if sel_couriers:
         df = df[df["courier"].isin(sel_couriers)]
 
