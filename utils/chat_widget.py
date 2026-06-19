@@ -3,7 +3,6 @@ Inline GDI Agent chat dialog — opened via floating Joker icon.
 Call render_chat_button(df) from any page to add the floating Joker trigger.
 """
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import re
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
@@ -63,7 +62,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
     stat = _find(ql, state_df["state"].tolist()  if len(state_df) > 0 else [])
     prod = _find(ql, df["product_name"].unique().tolist()) if "product_name" in df.columns else None
 
-    # ── Simulations ──────────────────────────────────────────────────────────
     if has("ai calling", "simulate call", "ndr recovery", "calling benefit") \
        or (hasw("calling", "call") and hasw("simulate", "benefit", "help", "impact")):
         rec = int(m["ndr_count"] * 0.38)
@@ -99,7 +97,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
         ])
         return f"Order Confirmation prevents **{saved:,} RTOs/month** before dispatch."
 
-    # ── Seller ───────────────────────────────────────────────────────────────
     if sel:
         s_df = df[df["seller_name"] == sel]
         sm   = compute_kpis(s_df); sm["vas_adoption_score"] = compute_vas_adoption_score(s_df)
@@ -109,7 +106,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
                 f"- Delivery: **{sm['delivery_pct']:.1f}%** | RTO: **{sm['rto_pct']:.1f}%** | NDR: **{sm['ndr_count']:,}**\n"
                 f"- Shipments: **{sm['total']:,}** | COD: **{sm['cod_pct']:.1f}%** | Avg: **₹{sm['avg_order_value']:,.0f}**")
 
-    # ── All sellers ───────────────────────────────────────────────────────────
     if has("all seller", "compare seller", "seller list") \
        or (hasw("seller", "sellers", "client", "clients") and hasw("all", "compare", "list", "rank")):
         sg = df.groupby("seller_name").agg(
@@ -125,7 +121,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             out += f"{e} **{r['seller_name']}** — {r['dr']:.1f}% del | {r['rr']:.1f}% RTO | {r['total']:,} shpts\n"
         return out
 
-    # ── Top products ─────────────────────────────────────────────────────────
     if has("top product", "top selling", "best selling", "popular") \
        or (hasw("top", "best", "popular") and hasw("product", "sku", "selling")):
         if "product_name" not in df.columns:
@@ -141,7 +136,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             out += f"- **{r['product_name']}** — {r['delivered']:,} delivered ({r['dr']:.0f}%)\n"
         return out
 
-    # ── Specific product ─────────────────────────────────────────────────────
     if prod:
         p_df = df[df["product_name"] == prod]
         pm   = compute_kpis(p_df)
@@ -150,7 +144,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
                 f"- RTO: **{pm['rto_count']:,}** ({pm['rto_pct']:.1f}%) | COD: **{pm['cod_pct']:.1f}%**\n"
                 f"- Avg Value: **₹{pm['avg_order_value']:,.0f}**")
 
-    # ── Courier ───────────────────────────────────────────────────────────────
     if cour or has("courier", "3pl") or hasw("couriers", "carrier"):
         if cour:
             r = cour_df[cour_df["courier"] == cour].iloc[0] if len(cour_df[cour_df["courier"]==cour])>0 else None
@@ -162,7 +155,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             out += f"{e} **{r['courier']}** — {r['delivery_rate']:.1f}% del | {r['rto_rate']:.1f}% RTO\n"
         return out
 
-    # ── State ─────────────────────────────────────────────────────────────────
     if stat or has("state", "location", "geographic") or hasw("states", "region"):
         if stat:
             r = state_df[state_df["state"]==stat]
@@ -175,7 +167,6 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             out += f"{e} **{r['state']}** — {r['rto_rate']:.1f}% RTO\n"
         return out
 
-    # ── RTO causes ────────────────────────────────────────────────────────────
     if has("rto", "high rto", "reduce rto") or (hasw("rto", "return") and hasw("why", "high", "cause", "fix")):
         return (f"**RTO at {m['rto_pct']:.1f}%** — 3 main causes:\n\n"
                 f"- {worst_c['courier'] if worst_c else 'Weakest courier'} delivering only {worst_c['delivery_rate']:.1f}%\n"
@@ -183,21 +174,18 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
                 f"- COD {m['cod_pct']:.1f}% share with {cod_rto:.1f}% COD-RTO rate\n\n"
                 f"**Fix:** Order Confirmation → WhatsApp NDR → AI Calling")
 
-    # ── Health ────────────────────────────────────────────────────────────────
     if has("health", "score", "overall", "summary") or hasw("health", "score", "overall"):
         risk = "Low Risk" if hs>=80 else ("Medium Risk" if hs>=65 else "High Risk")
         return (f"**Health: {hs:.0f}/100 — {risk}**\n\n"
                 f"- Delivery: **{m['delivery_pct']:.1f}%** | RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}**\n"
                 f"- Shipments: **{m['total']:,}** | COD: **{m['cod_pct']:.1f}%**")
 
-    # ── COD ───────────────────────────────────────────────────────────────────
     if has("cod", "prepaid", "payment") or hasw("cod", "prepaid", "payment"):
         return (f"**COD vs Prepaid:**\n\n"
                 f"- COD: **{m['cod_pct']:.1f}%** | COD-RTO: **{cod_rto:.1f}%**\n"
                 f"- Prepaid: **{100-m['cod_pct']:.1f}%** | Prepaid-RTO: **{prep_rto:.1f}%**\n"
                 f"- Premium risk: **+{cod_rto-prep_rto:.1f}%** extra RTO for COD")
 
-    # ── Default ───────────────────────────────────────────────────────────────
     return (f"**{m['total']:,} shipments** · Delivery **{m['delivery_pct']:.1f}%** · RTO **{m['rto_pct']:.1f}%**\n\n"
             f"Try: *Simulate AI Calling · Compare sellers · Top products · Why is RTO high?*")
 
@@ -212,7 +200,6 @@ def chat_dialog(df):
     state_df = compute_state_perf(df)
     all_sellers = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
 
-    # Stats bar
     rc = "#34D399" if hs>=80 else ("#FBBF24" if hs>=65 else "#F87171")
     st.markdown(f"""
     <div style="display:flex;gap:20px;background:#111827;border-radius:10px;
@@ -229,7 +216,6 @@ def chat_dialog(df):
            <div style="color:#6B7280;font-size:0.7rem;">Shipments</div></div>
     </div>""", unsafe_allow_html=True)
 
-    # Quick chips
     quick = ["Simulate AI Calling", "Simulate WhatsApp NDR", "Simulate Order Confirmation",
              "Compare all sellers", "Top selling products", "Why is RTO high?",
              "Show courier performance", "My health score"]
@@ -241,7 +227,6 @@ def chat_dialog(df):
 
     st.markdown("---")
 
-    # Chat history
     if "dialog_chat" not in st.session_state:
         st.session_state["dialog_chat"] = []
 
@@ -251,7 +236,6 @@ def chat_dialog(df):
         else:
             st.markdown(f'<div class="chat-bubble-bot">{msg["content"]}</div>', unsafe_allow_html=True)
 
-    # Input
     user_input = st.chat_input("Ask about sellers, products, couriers, simulations…")
     if sel_q or user_input:
         prompt = sel_q or user_input
@@ -267,99 +251,98 @@ def chat_dialog(df):
 
 
 def render_chat_button(df):
-    """Floating Joker icon in the bottom-right corner — opens GDI Agent dialog."""
+    """Floating Joker icon in the bottom-right corner — opens GDI Agent dialog.
+    Uses st.markdown to inject directly into the page (not an iframe)."""
 
-    if st.session_state.get("_joker_open"):
-        st.session_state["_joker_open"] = False
+    # The actual Streamlit button (visible but styled as floating joker via CSS)
+    if st.button("🃏 Ask GDI Agent", key="joker_trigger_btn", type="primary"):
         chat_dialog(df)
 
-    JOKER_SVG = """<svg viewBox="0 0 100 100" width="42" height="42" xmlns="http://www.w3.org/2000/svg">
-      <!-- Face -->
-      <circle cx="50" cy="50" r="42" fill="#7C3AED" stroke="#A78BFA" stroke-width="2"/>
-      <!-- Hat / Jester Cap -->
-      <path d="M15 38 Q25 5 50 20 Q75 5 85 38" fill="#4F46E5" stroke="#818CF8" stroke-width="1.5"/>
-      <circle cx="25" cy="12" r="5" fill="#FBBF24"/>
-      <circle cx="75" cy="12" r="5" fill="#F87171"/>
-      <circle cx="50" cy="5" r="5" fill="#34D399"/>
-      <!-- Eyes -->
-      <ellipse cx="36" cy="48" rx="5" ry="6" fill="white"/>
-      <ellipse cx="64" cy="48" rx="5" ry="6" fill="white"/>
-      <circle cx="37" cy="47" r="2.5" fill="#1F2937"/>
-      <circle cx="65" cy="47" r="2.5" fill="#1F2937"/>
-      <circle cx="38" cy="46" r="1" fill="white"/>
-      <circle cx="66" cy="46" r="1" fill="white"/>
-      <!-- Rosy cheeks -->
-      <ellipse cx="28" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
-      <ellipse cx="72" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
-      <!-- Big Smile -->
-      <path d="M32 62 Q50 82 68 62" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
-      <path d="M36 64 Q50 78 64 64" fill="#FBBF24" opacity="0.3"/>
-    </svg>"""
+    # Inject CSS + JS to transform the button into a floating joker icon
+    st.markdown("""
+    <style>
+    /* Target the joker button specifically and make it float */
+    div[data-testid="stBottom"] ~ div button[kind="primary"]:last-of-type,
+    button[kind="primary"] {
+        /* don't touch other primary buttons */
+    }
+    </style>
 
-    components.html(f"""
-    <div id="joker-float" style="
-        position:fixed; bottom:28px; right:28px; z-index:99999;
+    <!-- Floating Joker Icon (pure HTML, injected into page DOM) -->
+    <div id="gdi-joker-float" style="
+        position:fixed; bottom:28px; right:28px; z-index:999999;
         width:68px; height:68px; border-radius:50%;
         background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 50%,#6D28D9 100%);
         border:3px solid rgba(255,255,255,0.18);
         box-shadow:0 6px 28px rgba(124,58,237,0.5),0 0 0 4px rgba(124,58,237,0.12);
         cursor:pointer; display:flex; align-items:center; justify-content:center;
         transition:all 0.3s cubic-bezier(0.4,0,0.2,1);
-        animation:jpulse 2.5s ease-in-out infinite;
+        animation:gdi-jpulse 2.5s ease-in-out infinite;
     ">
-        {JOKER_SVG}
+        <svg viewBox="0 0 100 100" width="42" height="42" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="42" fill="#7C3AED" stroke="#A78BFA" stroke-width="2"/>
+          <path d="M15 38 Q25 5 50 20 Q75 5 85 38" fill="#4F46E5" stroke="#818CF8" stroke-width="1.5"/>
+          <circle cx="25" cy="12" r="5" fill="#FBBF24"/>
+          <circle cx="75" cy="12" r="5" fill="#F87171"/>
+          <circle cx="50" cy="5" r="5" fill="#34D399"/>
+          <ellipse cx="36" cy="48" rx="5" ry="6" fill="white"/>
+          <ellipse cx="64" cy="48" rx="5" ry="6" fill="white"/>
+          <circle cx="37" cy="47" r="2.5" fill="#1F2937"/>
+          <circle cx="65" cy="47" r="2.5" fill="#1F2937"/>
+          <circle cx="38" cy="46" r="1" fill="white"/>
+          <circle cx="66" cy="46" r="1" fill="white"/>
+          <ellipse cx="28" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
+          <ellipse cx="72" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
+          <path d="M32 62 Q50 82 68 62" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+          <path d="M36 64 Q50 78 64 64" fill="#FBBF24" opacity="0.3"/>
+        </svg>
     </div>
-    <div id="joker-tip" style="
-        position:fixed; bottom:102px; right:28px; z-index:99998;
+
+    <div id="gdi-joker-tip" style="
+        position:fixed; bottom:102px; right:28px; z-index:999998;
         background:#1F2937; color:#E0E7FF; padding:8px 14px; border-radius:10px;
         font-size:0.8rem; font-weight:600; font-family:'Outfit',sans-serif;
         box-shadow:0 4px 14px rgba(0,0,0,0.4); border:1px solid #374151;
         white-space:nowrap; opacity:0; transition:opacity 0.3s;
         pointer-events:none;
     ">🃏 Ask GDI Agent</div>
+
     <style>
-        @keyframes jpulse {{
-            0%,100% {{ box-shadow:0 6px 28px rgba(124,58,237,0.5),0 0 0 4px rgba(124,58,237,0.12); }}
-            50%      {{ box-shadow:0 6px 32px rgba(124,58,237,0.65),0 0 0 8px rgba(124,58,237,0.08); }}
-        }}
-        #joker-float:hover {{
-            transform:scale(1.12) rotate(5deg);
-            box-shadow:0 8px 36px rgba(124,58,237,0.65),0 0 0 6px rgba(124,58,237,0.2) !important;
-        }}
-        #joker-float:hover + #joker-tip {{ opacity:1; }}
-        #joker-float:active {{ transform:scale(0.95); }}
+    @keyframes gdi-jpulse {
+        0%,100% { box-shadow:0 6px 28px rgba(124,58,237,0.5),0 0 0 4px rgba(124,58,237,0.12); }
+        50%     { box-shadow:0 6px 32px rgba(124,58,237,0.65),0 0 0 8px rgba(124,58,237,0.08); }
+    }
+    #gdi-joker-float:hover {
+        transform:scale(1.12) rotate(5deg);
+        box-shadow:0 8px 36px rgba(124,58,237,0.65),0 0 0 6px rgba(124,58,237,0.2) !important;
+    }
+    #gdi-joker-float:hover ~ #gdi-joker-tip,
+    #gdi-joker-float:hover + #gdi-joker-tip { opacity:1; }
+    #gdi-joker-float:active { transform:scale(0.95); }
     </style>
-    <script>
-        const joker = document.getElementById('joker-float');
-        joker.addEventListener('click', function() {{
-            // Find and click the hidden Streamlit button
-            const btns = window.parent.document.querySelectorAll('button[kind="secondary"]');
-            for (const btn of btns) {{
-                if (btn.innerText.trim() === '🃏 Open GDI Agent') {{
-                    btn.click();
-                    break;
-                }}
-            }}
-        }});
-    </script>
-    """, height=0)
 
-    # Hidden trigger button — the floating SVG JS clicks this
-    if st.button("🃏 Open GDI Agent", key="joker_trigger_btn"):
-        chat_dialog(df)
-
-    # Hide the Streamlit button (the floating SVG is the visible trigger)
-    components.html("""
     <script>
+    // Wire the floating joker to click the hidden Streamlit button
     (function() {
-        const btns = window.parent.document.querySelectorAll('button[kind="secondary"]');
-        for (const btn of btns) {
-            if (btn.innerText.trim() === '🃏 Open GDI Agent') {
-                btn.closest('[data-testid="stButton"]').style.cssText =
-                    'position:fixed;bottom:-200px;left:-200px;opacity:0;height:0;overflow:hidden;pointer-events:none;';
+        const joker = document.getElementById('gdi-joker-float');
+        if (!joker) return;
+
+        // Hide the original Streamlit button
+        const allBtns = window.document.querySelectorAll('button');
+        for (const btn of allBtns) {
+            const txt = btn.innerText || btn.textContent || '';
+            if (txt.includes('Ask GDI Agent') && txt.includes('🃏')) {
+                const wrapper = btn.closest('div[data-testid="stButton"]')
+                              || btn.closest('.stButton')
+                              || btn.parentElement;
+                if (wrapper) {
+                    wrapper.style.cssText = 'height:0;overflow:hidden;opacity:0;position:absolute;pointer-events:none;';
+                }
+                // Click the hidden button when joker is clicked
+                joker.onclick = function() { btn.click(); };
                 break;
             }
         }
     })();
     </script>
-    """, height=0)
+    """, unsafe_allow_html=True)
