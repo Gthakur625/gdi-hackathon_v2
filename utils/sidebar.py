@@ -327,4 +327,18 @@ def render_sidebar_and_get_data():
         st.error("No shipments match the selected filters.")
         st.stop()
 
+    # ── Ask GDI Agent shortcut ────────────────────────────────────────────────
+    st.sidebar.markdown("<hr style='border:0;height:1px;background:#1F2937;margin:20px 0;'>", unsafe_allow_html=True)
+    st.sidebar.markdown(
+        "<div style='color:#9CA3AF;font-size:0.75rem;text-transform:uppercase;"
+        "letter-spacing:0.06em;font-weight:600;margin-bottom:8px;'>🤖 AI Consultant</div>",
+        unsafe_allow_html=True,
+    )
+    st.sidebar.page_link("pages/7_AI_Chat_Assistant.py", label="Ask GDI Agent", icon="🤖")
+    st.sidebar.markdown(
+        "<div style='color:#6B7280;font-size:0.73rem;margin-top:4px;'>"
+        "Ask about sellers, products, couriers & VAS</div>",
+        unsafe_allow_html=True,
+    )
+
     return df

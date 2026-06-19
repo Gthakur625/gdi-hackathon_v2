@@ -6,7 +6,7 @@ from utils.styles  import apply_styles
 from utils.sidebar import render_sidebar_and_get_data
 from utils.metrics import compute_kpis, compute_sku_perf
 
-st.set_page_config(page_title="SKU Intelligence · GDI", page_icon="📦", layout="wide")
+st.set_page_config(page_title="SKU Intelligence · GDI", page_icon="📦", layout="wide", initial_sidebar_state="expanded")
 apply_styles()
 df = render_sidebar_and_get_data()
 

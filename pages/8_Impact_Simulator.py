@@ -9,7 +9,7 @@ from utils.styles  import apply_styles
 from utils.sidebar import render_sidebar_and_get_data
 from utils.metrics import compute_kpis
 
-st.set_page_config(page_title="Impact Simulator · GDI", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Impact Simulator · GDI", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 apply_styles()
 df = render_sidebar_and_get_data()
 m  = compute_kpis(df)

@@ -7,7 +7,7 @@ from utils.styles  import apply_styles
 from utils.sidebar import render_sidebar_and_get_data
 from utils.metrics import compute_kpis, compute_health_score, compute_vas_adoption_score
 
-st.set_page_config(page_title="Seller Health Score · GDI", page_icon="❤️", layout="wide")
+st.set_page_config(page_title="Seller Health Score · GDI", page_icon="❤️", layout="wide", initial_sidebar_state="expanded")
 apply_styles()
 df = render_sidebar_and_get_data()
 
