@@ -26,19 +26,24 @@ def _excel_to_datetime(v):
 # Default live database — auto-loads on every session start
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/13hsbrb6Zyb7IgXCSMk-a4hl_vGCajVt6q66n3cVVDfo/edit?gid=0#gid=0"
 
+DEFAULT_METABASE_URL     = "https://metabase.velocity.in"
+DEFAULT_METABASE_API_KEY = "mb_oU89lFlIKpa+35xdrqWsIK241R+Qxiegh56BZjxItrU="
+DEFAULT_METABASE_QID     = "4570"
+
 # ── Metabase helpers ──────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
 def _fetch_metabase(base_url: str, question_id: int, auth_value: str, auth_type: str = "api_key"):
-    import requests, io
+    import requests, io, warnings
+    warnings.filterwarnings("ignore")
     if auth_type == "api_key":
         headers = {"x-api-key": auth_value}
     else:
         headers = {"X-Metabase-Session": auth_value}
     url = f"{base_url.rstrip('/')}/api/card/{question_id}/query/csv"
-    resp = requests.post(url, headers=headers, timeout=30)
+    resp = requests.post(url, headers=headers, timeout=120)
     resp.raise_for_status()
-    df = pd.read_csv(io.StringIO(resp.text))
+    df = pd.read_csv(io.StringIO(resp.text), on_bad_lines="skip", low_memory=False)
     return df
 
 
@@ -140,7 +145,7 @@ def _parse_uploaded_mis(df):
     if src and src != "shipment_date":         rename[src] = "shipment_date"
 
     # pickup_date — primary cohort date for delivery % analysis
-    src = find_col("pickup_date","pickup_Created_at","pickup_created_at","pickupdate","picked_date")
+    src = find_col("pickup_date","pickup_Created_at","pickup_created_at","pickup_time","pickupdate","picked_date")
     if src and src != "pickup_date":           rename[src] = "pickup_date"
 
     src = find_col("delivery_state","state","dest_state")
@@ -252,21 +257,43 @@ def _parse_uploaded_mis(df):
 
     def clean_status(v):
         v = str(v).lower().strip()
+
+        # ── Exact matches first (Metabase ShipFast statuses) ──
+        if v == "delivered":                                  return "Delivered"
+        if v == "lost":                                       return "RTO"
+        if v == "cancelled":                                  return "Cancelled"
+
+        # ── RTO family (rto_in_transit, rto_delivered, rto_initiated, rto_out_for_delivery, rto_need_attention) ──
+        if v.startswith("rto"):                               return "RTO"
+
+        # ── Return family (return_in_transit, return_delivered, return_pickup_scheduled, return_not_picked, return_qc_failed, return_ndr_raised) ──
+        if v.startswith("return"):                            return "RTO"
+
+        # ── NDR family (ndr_raised, reattempt_delivery, need_attention) ──
+        if v in ("ndr_raised", "reattempt_delivery", "need_attention"):
+            return "NDR"
+        if "ndr" in v or "undeliver" in v:                    return "NDR"
+
+        # ── Pending Pickup (ready_for_pickup, not_picked) ──
+        if v in ("ready_for_pickup", "not_picked", "pending", "awaiting pickup",
+                 "pickup pending", "pending_pickup"):         return "Pending Pickup"
+        if "pending" in v and "pickup" in v:                  return "Pending Pickup"
+
+        # ── In Transit / OFD ──
+        if v in ("in_transit", "out_for_delivery"):           return "In Transit"
+        if "transit" in v or "ofd" in v or "out for" in v:    return "In Transit"
+
+        # ── Delivered (fuzzy — only if not caught above) ──
+        if v in ("delivery successful",):                     return "Delivered"
+        if v == "delivered":                                   return "Delivered"
+
+        # ── Fallback patterns ──
         if "rto" in v:                                        return "RTO"
-        if v in ("delivered", "delivery successful"):         return "Delivered"
-        if "deliver" in v and "undeliver" not in v:          return "Delivered"
-        if "return" in v:                                     return "RTO"
-        if "ndr" in v or "undeliver" in v:                   return "NDR"
-        if "attempt" in v or "fail" in v:                    return "NDR"
-        # Pending Pickup = not yet collected by courier → excluded from delivery %
-        if ("pending" in v and "pickup" in v) or v in ("pending", "not picked", "awaiting pickup",
-            "pickup pending", "pending_pickup"):              return "Pending Pickup"
-        # In Transit = picked up and moving → included in delivery % denominator
-        if "transit" in v or "ofd" in v or "out for" in v:  return "In Transit"
+        if "attempt" in v or "fail" in v:                     return "NDR"
         if "picked" in v or ("pickup" in v and "pending" not in v): return "In Transit"
         if "booked" in v or "manifest" in v or "shipped" in v: return "In Transit"
         if "cancel" in v:                                     return "Cancelled"
-        return "In Transit"   # unknown active status = in transit
+        return "In Transit"
     df["delivery_status"] = df["delivery_status"].apply(clean_status)
 
     if rto_flag_col is None or rto_flag_col in rename:
@@ -349,10 +376,15 @@ def render_sidebar_and_get_data():
                 "text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;'>"
                 "📊 Data Source</div>", unsafe_allow_html=True)
 
-    # Auto-set default GSheet on first session load (no manual connect needed)
+    # Auto-set defaults on first session load
     if "gsheet_url" not in st.session_state:
         st.session_state["gsheet_url"]     = DEFAULT_GSHEET_URL
-        st.session_state["src_choice_idx"] = 0   # Google Sheet tab
+    if "metabase_url" not in st.session_state:
+        st.session_state["metabase_url"]       = DEFAULT_METABASE_URL
+        st.session_state["metabase_api_key"]   = DEFAULT_METABASE_API_KEY
+        st.session_state["metabase_auth_type"] = "api_key"
+        st.session_state["metabase_qid"]       = DEFAULT_METABASE_QID
+        st.session_state["src_choice_idx"]     = 1   # Metabase tab
 
     # Remember the last selected source across page navigations
     default_src_idx = st.session_state.get("src_choice_idx", 0)
@@ -438,7 +470,7 @@ def render_sidebar_and_get_data():
                     unsafe_allow_html=True)
         mb_url = sb.text_input(
             "Metabase URL",
-            value=st.session_state.get("metabase_url", ""),
+            value=st.session_state.get("metabase_url", DEFAULT_METABASE_URL),
             placeholder="https://metabase.yourcompany.com",
             label_visibility="collapsed",
         )
@@ -449,7 +481,7 @@ def render_sidebar_and_get_data():
             mb_api_key = sb.text_input(
                 "API Key",
                 type="password",
-                value=st.session_state.get("metabase_api_key", ""),
+                value=st.session_state.get("metabase_api_key", DEFAULT_METABASE_API_KEY),
                 placeholder="mb_xxxxxxxx...",
                 label_visibility="collapsed",
             )
@@ -476,8 +508,8 @@ def render_sidebar_and_get_data():
                     unsafe_allow_html=True)
         mb_qid = sb.text_input(
             "Question / Card ID",
-            value=st.session_state.get("metabase_qid", ""),
-            placeholder="e.g. 42 (saved question ID)",
+            value=st.session_state.get("metabase_qid", DEFAULT_METABASE_QID),
+            placeholder="e.g. 4570 (saved question ID)",
             label_visibility="collapsed",
         )
 
