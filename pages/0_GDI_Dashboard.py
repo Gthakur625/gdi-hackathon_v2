@@ -132,7 +132,7 @@ for col, lbl, val, clr, sub in [
      f"{m['delivered']:,} of {m['attempted_total']:,} attempted"),
     (c2,"RTO Rate",       f"{m['rto_pct']:.1f}%",      "#F87171", f"{m['rto_count']:,} returned"),
     (c3,"NDR Active",     f"{m['ndr_count']:,}",        "#FBBF24", "needs resolution"),
-    (c4,"In Transit",     f"{pending_count:,}",         "#6B7280", "pending · excluded from %"),
+    (c4,"Pending Pickup",  f"{pending_count:,}",         "#6B7280", "not collected · excluded from %"),
     (c5,"COD Share",      f"{m['cod_pct']:.1f}%",       "#C084FC", f"₹{m['avg_order_value']:,.0f} avg order"),
     (c6,"Couriers",       f"{len(cour_perf)}",          "#818CF8", "3PL partners"),
     (c7,"VAS Unlock",     f"₹{total_pot:,}",            "#34D399", "revenue potential"),
@@ -141,11 +141,11 @@ for col, lbl, val, clr, sub in [
 
 if pending_count > 0:
     st.markdown(
-        f'<div style="background:rgba(107,114,128,0.1);border:1px solid rgba(107,114,128,0.25);'
+        f'<div style="background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.2);'
         f'border-radius:8px;padding:8px 14px;font-size:0.82rem;color:#9CA3AF;margin-bottom:10px;">'
-        f'ℹ️ <b style="color:#D1D5DB;">{pending_count:,} shipments</b> are still In Transit / Pending Pickup '
-        f'for the selected pickup date range — these are <b>excluded from the Delivery %</b> calculation. '
-        f'Ask GDI Agent for a breakdown.</div>',
+        f'ℹ️ <b style="color:#D1D5DB;">{pending_count:,} shipments</b> are <b>Pending Pickup</b> '
+        f'(courier not yet collected) — excluded from Delivery %. '
+        f'In Transit shipments are included in the denominator.</div>',
         unsafe_allow_html=True)
 
 # Anomalies

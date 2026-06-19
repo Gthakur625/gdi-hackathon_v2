@@ -437,8 +437,8 @@ def reply(q):
                  f"- RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}** | COD: **{m['cod_pct']:.1f}%**\n"
                  f"- Total picked up in period: **{m['total']:,}**\n")
         if pend > 0:
-            text += (f"- ℹ️ **{pend:,} shipments still In Transit / Pending Pickup** — "
-                     f"these are excluded from delivery % (not yet attempted)\n")
+            text += (f"- ℹ️ **{pend:,} shipments Pending Pickup** (courier not yet collected) — "
+                     f"excluded from Delivery %. In Transit shipments ARE included.\n")
         text += "\n" + (f"**Priority Actions:**\n"+"\n".join(f"- {f}" for f in fixes) if fixes else "✅ No critical issues.")
         return text, ["Simulate AI Calling","Compare all sellers","Show RTO causes","Give me action plan"], None, None
 

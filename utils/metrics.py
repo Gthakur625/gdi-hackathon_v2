@@ -48,16 +48,13 @@ VAS_CATALOG = [
 def compute_kpis(df):
     total = len(df)
 
-    # Attempted = shipments that had a delivery attempt (Delivered / RTO / NDR)
-    # Pending Pickup / In Transit / Cancelled = NOT yet attempted → excluded from delivery %
-    # The agent will show pending count separately so users know they're excluded.
-    attempted_mask = df["delivery_status"].isin(["Delivered", "RTO", "NDR"])
-    attempted      = df[attempted_mask]
-    attempted_total= len(attempted)
+    # Denominator = all picked-up shipments (Delivered + RTO + NDR + In Transit)
+    # Excluded from delivery % = Pending Pickup only (not yet collected by courier)
+    picked_up_mask  = df["delivery_status"].isin(["Delivered", "RTO", "NDR", "In Transit"])
+    attempted       = df[picked_up_mask]
+    attempted_total = len(attempted)
 
-    pending_mask   = df["delivery_status"].isin(["In Transit", "Pending Pickup",
-                                                   "Cancelled", "In Transit"])
-    pending_count  = int(pending_mask.sum())
+    pending_count   = int((df["delivery_status"] == "Pending Pickup").sum())
 
     delivered = int((attempted["delivery_status"] == "Delivered").sum())
     rto       = int((attempted["delivery_status"] == "RTO").sum())

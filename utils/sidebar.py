@@ -226,12 +226,15 @@ def _parse_uploaded_mis(df):
         if "return" in v:                                     return "RTO"
         if "ndr" in v or "undeliver" in v:                   return "NDR"
         if "attempt" in v or "fail" in v:                    return "NDR"
-        # In-transit statuses — NOT delivered yet
+        # Pending Pickup = not yet collected by courier → excluded from delivery %
+        if ("pending" in v and "pickup" in v) or v in ("pending", "not picked", "awaiting pickup",
+            "pickup pending", "pending_pickup"):              return "Pending Pickup"
+        # In Transit = picked up and moving → included in delivery % denominator
         if "transit" in v or "ofd" in v or "out for" in v:  return "In Transit"
-        if "pickup" in v or "picked" in v:                   return "In Transit"
-        if "booked" in v or "manifest" in v:                 return "In Transit"
+        if "picked" in v or ("pickup" in v and "pending" not in v): return "In Transit"
+        if "booked" in v or "manifest" in v or "shipped" in v: return "In Transit"
         if "cancel" in v:                                     return "Cancelled"
-        return "In Transit"   # unknown = not yet delivered
+        return "In Transit"   # unknown active status = in transit
     df["delivery_status"] = df["delivery_status"].apply(clean_status)
 
     if rto_flag_col is None or rto_flag_col in rename:
