@@ -44,60 +44,193 @@ def _normalize_courier(name):
 
 
 def _parse_uploaded_mis(df):
-    col_mapping = {}; mapped = set()
-    for col in df.columns:
-        c = col.lower().strip(); target = None
-        if "awb" in c:                            target = "awb"
-        elif "seller" in c:                        target = "seller_name"
-        elif "status" in c:                        target = "delivery_status"
-        elif "product" in c or "item" in c:        target = "product_name"
-        elif "sku" in c:                           target = "sku"
-        elif "value" in c or "amount" in c or "price" in c: target = "order_value"
-        elif "courier" in c or "partner" in c:     target = "courier"
-        if target and target not in mapped:
-            col_mapping[col] = target; mapped.add(target)
-    df = df.rename(columns=col_mapping)
+    # Build case-insensitive column lookup
+    col_index = {c.lower().strip(): c for c in df.columns}
+
+    def find_col(*candidates):
+        for c in candidates:
+            if c in df.columns:
+                return c
+            if c.lower() in col_index:
+                return col_index[c.lower()]
+        return None
+
+    rename = {}
+
+    # seller_name: client_name takes priority over seller/seller_name
+    src = find_col("client_name", "seller_name", "seller", "client")
+    if src and src != "seller_name":
+        rename[src] = "seller_name"
+
+    # courier: standard_courier_partner is most normalised, then carrier_name
+    src = find_col("standard_courier_partner", "standard_name", "carrier_name",
+                   "courier", "courier partner", "courier_partner")
+    if src and src != "courier":
+        rename[src] = "courier"
+
+    # delivery_status: standard_status is most normalised
+    src = find_col("standard_status", "shipment_status", "delivery_status", "status")
+    if src and src != "delivery_status":
+        rename[src] = "delivery_status"
+
+    # order_value
+    src = find_col("product_value", "order_value", "amount", "value", "price")
+    if src and src != "order_value":
+        rename[src] = "order_value"
+
+    # awb
+    src = find_col("AWB", "awb", "tracking_id", "tracking", "awb_number")
+    if src and src != "awb":
+        rename[src] = "awb"
+
+    # shipment_date
+    src = find_col("shipment_created_at", "created_at", "shipment_date",
+                   "date", "order_date", "booking_date")
+    if src and src != "shipment_date":
+        rename[src] = "shipment_date"
+
+    # state
+    src = find_col("delivery_state", "state", "dest_state", "destination_state")
+    if src and src != "state":
+        rename[src] = "state"
+
+    # pincode
+    src = find_col("delivery_zip", "pincode", "zip", "postal_code",
+                   "delivery_pincode", "pin", "dest_pincode")
+    if src and src != "pincode":
+        rename[src] = "pincode"
+
+    # product_name
+    src = find_col("product_name", "item_name", "product", "item")
+    if src and src != "product_name":
+        rename[src] = "product_name"
+
+    # sku_category
+    src = find_col("category", "sku_category", "product_category", "cat")
+    if src and src != "sku_category":
+        rename[src] = "sku_category"
+
+    # sku / order id
+    src = find_col("sku", "order_id_display", "order_id", "shipment_id")
+    if src and src != "sku":
+        rename[src] = "sku"
+
+    # ndr_reason: prefer latest_ndr_comment > ndr_reason > first_ndr_comment
+    src = find_col("latest_ndr_comment", "ndr_reason", "first_ndr_comment", "ndr_comment")
+    if src and src != "ndr_reason":
+        rename[src] = "ndr_reason"
+
+    # attempt_count
+    src = find_col("attempt_count", "attempts", "delivery_attempts", "ndr_ct")
+    if src and src != "attempt_count":
+        rename[src] = "attempt_count"
+
+    # Track special columns BEFORE renaming
+    is_cod_col      = find_col("is_cod")
+    rto_flag_col    = find_col("rto_flag")
+    ndr_ct_col      = find_col("ndr_ct")
+    ndr_date_col    = find_col("first_NDR_date", "first_ndr_date", "latest_ndr_date")
+    payment_src     = find_col("is_cod", "payment_type", "payment_mode", "payment")
+    if payment_src and payment_src != "payment_type" and payment_src not in rename:
+        rename[payment_src] = "payment_type"
+
+    df = df.rename(columns=rename)
     df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+    # Convert is_cod (0/1) → COD/Prepaid
+    if "payment_type" in df.columns and payment_src == is_cod_col:
+        def _cod(v):
+            s = str(v).strip().lower()
+            if s in ("1", "true", "yes", "cod"):   return "COD"
+            if s in ("0", "false", "no", "prepaid"): return "Prepaid"
+            return "COD" if "cod" in s else "Prepaid"
+        df["payment_type"] = df["payment_type"].apply(_cod)
+
+    # Build rto_status from rto_flag if not already present
+    if "rto_status" not in df.columns:
+        if rto_flag_col and rto_flag_col not in rename:
+            df["rto_status"] = df[rto_flag_col].apply(
+                lambda v: "Returned" if str(v).strip() in ("1","True","true","yes") else "None"
+            )
+        else:
+            df["rto_status"] = "None"
+
+    # Build ndr_status from ndr_ct or NDR date
+    if "ndr_status" not in df.columns:
+        if ndr_ct_col and ndr_ct_col not in rename:
+            df["ndr_status"] = df[ndr_ct_col].apply(
+                lambda v: "Raised" if pd.to_numeric(v, errors="coerce") > 0 else "None"
+            )
+        elif ndr_date_col and ndr_date_col not in rename:
+            df["ndr_status"] = df[ndr_date_col].apply(
+                lambda v: "Raised" if pd.notna(v) and str(v) not in ("", "nan", "None", "NaT") else "None"
+            )
+        else:
+            df["ndr_status"] = "None"
+
+    # SKU / product_name fallback
     if "product_name" in df.columns and "sku" not in df.columns:
         df["sku"] = df["product_name"].astype(str)
     elif "sku" in df.columns and "product_name" not in df.columns:
         df["product_name"] = df["sku"].astype(str)
     elif "sku" not in df.columns and "product_name" not in df.columns:
-        df["sku"] = "SKU-GEN-01"; df["product_name"] = "General Product"
+        df["sku"] = "SKU-GEN-01"
+        df["product_name"] = "General Product"
+
     defaults = {
-        "awb":            lambda d: ["AWB"+str(900000+i) for i in range(len(d))],
-        "seller_name":    lambda d: "Apex Retail",
-        "delivery_status":lambda d: "Delivered",
-        "order_value":    lambda d: 999,
-        "courier":        lambda d: "Delhivery",
-        "sku_category":   lambda d: "General",
-        "state":          lambda d: np.random.choice(["Bihar","Maharashtra","Karnataka","Delhi","Uttar Pradesh"], size=len(d)),
-        "pincode":        lambda d: "560001",
-        "payment_type":   lambda d: np.random.choice(["COD","Prepaid"], size=len(d), p=[0.6,0.4]),
-        "rto_status":     lambda d: d["delivery_status"].apply(lambda x: "Returned" if x=="RTO" else "None"),
-        "ndr_status":     lambda d: d["delivery_status"].apply(lambda x: "Raised" if x in ["RTO","NDR"] else "None"),
-        "ndr_reason":     lambda d: "",
-        "attempt_count":  lambda d: 1,
-        "ndr_age_hours":  lambda d: 0,
-        "whatsapp_opt_in":lambda d: True,
+        "awb":              lambda d: ["AWB" + str(900000 + i) for i in range(len(d))],
+        "seller_name":      lambda d: "Unknown Seller",
+        "delivery_status":  lambda d: "Delivered",
+        "order_value":      lambda d: 999,
+        "courier":          lambda d: "Delhivery",
+        "sku_category":     lambda d: "General",
+        "state":            lambda d: np.random.choice(
+                                ["Bihar","Maharashtra","Karnataka","Delhi","Uttar Pradesh"], size=len(d)),
+        "pincode":          lambda d: "560001",
+        "payment_type":     lambda d: np.random.choice(["COD","Prepaid"], size=len(d), p=[0.6,0.4]),
+        "rto_status":       lambda d: d["delivery_status"].apply(lambda x: "Returned" if x=="RTO" else "None"),
+        "ndr_status":       lambda d: "None",
+        "ndr_reason":       lambda d: "",
+        "attempt_count":    lambda d: 1,
+        "ndr_age_hours":    lambda d: 0,
+        "whatsapp_opt_in":  lambda d: True,
         "calling_attempted":lambda d: False,
-        "vas_active":     lambda d: "ATS Core Routing",
-        "shipment_date":  lambda d: [(datetime.now()-timedelta(days=np.random.randint(0,30))).strftime("%Y-%m-%d") for _ in range(len(d))],
+        "vas_active":       lambda d: "AI Calling",
+        "shipment_date":    lambda d: [(datetime.now() - timedelta(days=np.random.randint(0, 30))).strftime("%Y-%m-%d")
+                                       for _ in range(len(d))],
     }
     for col, fn in defaults.items():
         if col not in df.columns:
             df[col] = fn(df)
-    df["order_value"] = pd.to_numeric(df["order_value"], errors="coerce").fillna(999)
-    df["shipment_date"] = pd.to_datetime(df["shipment_date"])
-    if "courier" in df.columns:
-        df["courier"] = df["courier"].apply(_normalize_courier)
+
+    df["order_value"]   = pd.to_numeric(df["order_value"],   errors="coerce").fillna(999)
+    df["attempt_count"] = pd.to_numeric(df["attempt_count"], errors="coerce").fillna(1).astype(int)
+    df["shipment_date"] = pd.to_datetime(df["shipment_date"], errors="coerce")
+    df["shipment_date"] = df["shipment_date"].fillna(pd.Timestamp.now())
+
     def clean_status(v):
         v = str(v).lower().strip()
-        if "deliver" in v: return "Delivered"
-        if "rto" in v or "return" in v: return "RTO"
-        if "ndr" in v or "attempt" in v or "fail" in v: return "NDR"
+        if "deliver" in v:                          return "Delivered"
+        if "rto" in v or "return" in v:             return "RTO"
+        if "ndr" in v or "undeliver" in v:          return "NDR"
+        if "attempt" in v or "fail" in v:           return "NDR"
+        if "transit" in v or "out_for" in v:        return "Delivered"
         return "Delivered"
     df["delivery_status"] = df["delivery_status"].apply(clean_status)
+
+    # Sync rto_status with delivery_status if rto_flag wasn't available
+    if rto_flag_col is None or rto_flag_col in rename:
+        df["rto_status"] = df["delivery_status"].apply(lambda x: "Returned" if x == "RTO" else "None")
+
+    # Sync ndr_status with delivery_status as final fallback
+    ndr_never_set = (ndr_ct_col is None or ndr_ct_col in rename) and \
+                    (ndr_date_col is None or ndr_date_col in rename)
+    if ndr_never_set:
+        df["ndr_status"] = df["delivery_status"].apply(
+            lambda x: "Raised" if x in ["RTO", "NDR"] else "None"
+        )
+
+    df["courier"] = df["courier"].apply(_normalize_courier)
     return df
 
 
@@ -128,13 +261,22 @@ def render_sidebar_and_get_data():
     )
 
     template_df = pd.DataFrame({
-        "AWB":["AWB910283","AWB910284","AWB910285"],
-        "Seller Name":["Apex Retail","Zenith Fashion","Apex Retail"],
-        "Shipping Status":["Delivered","RTO","NDR"],
-        "Product Name":["Premium Cotton T-Shirt","Smart Watch V2","Wireless Keyboard & Mouse"],
-        "SKU ID":["SKU-APP-01","SKU-FSH-10","SKU-ELC-51"],
-        "Amount":[1499,2999,1899],
-        "Courier Partner":["Delhivery","Bluedart","Xpressbees"],
+        "AWB":                    ["AWB910283","AWB910284","AWB910285"],
+        "client_name":            ["Brand A","Brand B","Brand A"],
+        "standard_status":        ["Delivered","RTO","NDR"],
+        "product_name":           ["Premium Cotton T-Shirt","Smart Watch V2","Wireless Keyboard"],
+        "order_id_display":       ["ORD-001","ORD-002","ORD-003"],
+        "product_value":          [1499,2999,1899],
+        "standard_courier_partner":["Delhivery","Bluedart","Xpressbees"],
+        "is_cod":                 [1,0,1],
+        "delivery_state":         ["Maharashtra","Karnataka","Delhi"],
+        "delivery_zip":           ["400001","560001","110001"],
+        "category":               ["Apparel","Electronics","Apparel"],
+        "ndr_ct":                 [0,0,1],
+        "attempt_count":          [1,2,1],
+        "rto_flag":               [0,1,0],
+        "ndr_reason":             ["","","Customer Not Available"],
+        "shipment_created_at":    ["2026-06-01","2026-06-05","2026-06-10"],
     })
     st.sidebar.download_button(
         "📥 Download Template MIS CSV", _convert_to_csv(template_df),
