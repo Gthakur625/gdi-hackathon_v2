@@ -48,29 +48,40 @@ VAS_CATALOG = [
 def compute_kpis(df):
     total = len(df)
 
-    # Delivery % = Delivered / ALL shipments picked up in period
-    # Denominator = every shipment picked up in the selected pickup date range
-    # (includes In Transit, NDR, RTO, Delivered — cohort based on pickup date)
-    delivered = (df["delivery_status"] == "Delivered").sum()
-    rto       = (df["delivery_status"] == "RTO").sum()
-    ndr       = (df["ndr_status"] == "Raised").sum() if "ndr_status" in df.columns else 0
-    cod       = (df["payment_type"] == "COD").sum()
+    # Attempted = shipments that had a delivery attempt (Delivered / RTO / NDR)
+    # Pending Pickup / In Transit / Cancelled = NOT yet attempted → excluded from delivery %
+    # The agent will show pending count separately so users know they're excluded.
+    attempted_mask = df["delivery_status"].isin(["Delivered", "RTO", "NDR"])
+    attempted      = df[attempted_mask]
+    attempted_total= len(attempted)
+
+    pending_mask   = df["delivery_status"].isin(["In Transit", "Pending Pickup",
+                                                   "Cancelled", "In Transit"])
+    pending_count  = int(pending_mask.sum())
+
+    delivered = int((attempted["delivery_status"] == "Delivered").sum())
+    rto       = int((attempted["delivery_status"] == "RTO").sum())
+    ndr       = int((df["ndr_status"] == "Raised").sum()) if "ndr_status" in df.columns else 0
+    cod       = int((df["payment_type"] == "COD").sum())
     avg_ov    = df["order_value"].mean() if total > 0 else 0
 
-    delivery_pct = delivered / total * 100 if total else 0
-    rto_pct      = rto      / total * 100 if total else 0
-    ndr_pct      = ndr      / total * 100 if total else 0
-    cod_pct      = cod      / total * 100 if total else 0
+    # Rates calculated on attempted shipments only (honest delivery %)
+    delivery_pct = delivered / attempted_total * 100 if attempted_total else 0
+    rto_pct      = rto      / attempted_total * 100 if attempted_total else 0
+    ndr_pct      = ndr      / total           * 100 if total else 0
+    cod_pct      = cod      / total           * 100 if total else 0
 
     courier_perf = compute_courier_perf(df)
     c_var = courier_perf["delivery_rate"].std() if len(courier_perf) > 1 else 0
 
     return {
         "total":                  total,
-        "delivered":              int(delivered),
-        "rto_count":              int(rto),
-        "ndr_count":              int(ndr),
-        "cod_count":              int(cod),
+        "attempted_total":        attempted_total,
+        "pending_count":          pending_count,
+        "delivered":              delivered,
+        "rto_count":              rto,
+        "ndr_count":              ndr,
+        "cod_count":              cod,
         "delivery_pct":           delivery_pct,
         "rto_pct":                rto_pct,
         "ndr_pct":                ndr_pct,
@@ -107,7 +118,11 @@ def compute_vas_adoption_score(df):
 def compute_courier_perf(df):
     if len(df) == 0:
         return pd.DataFrame()
-    g = df.groupby("courier").agg(
+    # Use only attempted shipments for delivery/RTO rates
+    t = df[df["delivery_status"].isin(["Delivered","RTO","NDR"])]
+    if len(t) == 0:
+        return pd.DataFrame()
+    g = t.groupby("courier").agg(
         total    =("delivery_status","count"),
         delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
         rto      =("delivery_status", lambda x: (x=="RTO").sum()),
@@ -120,7 +135,10 @@ def compute_courier_perf(df):
 def compute_state_perf(df):
     if len(df) == 0:
         return pd.DataFrame()
-    g = df.groupby("state").agg(
+    t = df[df["delivery_status"].isin(["Delivered","RTO","NDR"])]
+    if len(t) == 0:
+        return pd.DataFrame()
+    g = t.groupby("state").agg(
         total    =("delivery_status","count"),
         delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
         rto      =("delivery_status", lambda x: (x=="RTO").sum()),

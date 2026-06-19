@@ -23,6 +23,9 @@ def _excel_to_datetime(v):
         pass
     return pd.to_datetime(v, errors="coerce", dayfirst=True)
 
+# Default live database — auto-loads on every session start
+DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/13hsbrb6Zyb7IgXCSMk-a4hl_vGCajVt6q66n3cVVDfo/edit?gid=0#gid=0"
+
 STANDARD_COURIERS = [
     "Delhivery", "Bluedart", "Xpressbees", "Shadowfax",
     "PiknDel", "Blitz", "Ekart",
@@ -311,8 +314,13 @@ def render_sidebar_and_get_data():
                 "text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;'>"
                 "📊 Data Source</div>", unsafe_allow_html=True)
 
+    # Auto-set default GSheet on first session load (no manual connect needed)
+    if "gsheet_url" not in st.session_state:
+        st.session_state["gsheet_url"]     = DEFAULT_GSHEET_URL
+        st.session_state["src_choice_idx"] = 0   # Google Sheet tab
+
     # Remember the last selected source across page navigations
-    default_src_idx = 0 if st.session_state.get("gsheet_url") else 2
+    default_src_idx = st.session_state.get("src_choice_idx", 0)
     src_choice = sb.radio(
         "Data Source",
         ["🔗 Google Sheet (Live)", "📁 Upload CSV / Excel", "📋 Demo Data"],
@@ -334,22 +342,23 @@ def render_sidebar_and_get_data():
 
         gsheet_url = sb.text_input(
             "Google Sheet URL",
-            key="gsheet_url_input",
+            value=st.session_state.get("gsheet_url", DEFAULT_GSHEET_URL),
             placeholder="https://docs.google.com/spreadsheets/d/...",
             label_visibility="collapsed",
         )
 
-        if sb.button("🔗 Connect & Load Data", use_container_width=True, type="primary"):
+        if sb.button("🔗 Connect New Sheet", use_container_width=True, type="primary"):
             if gsheet_url.strip():
                 st.session_state["gsheet_url"] = gsheet_url.strip()
                 st.cache_data.clear()
             else:
-                sb.warning("Paste your Google Sheet URL above first")
+                sb.warning("Paste a Google Sheet URL above first")
 
-        if sb.button("🔄 Refresh Now", use_container_width=True):
+        if sb.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
 
-        active_url = st.session_state.get("gsheet_url", "")
+        # Use session state URL (default or user-entered) — no click needed
+        active_url = st.session_state.get("gsheet_url", DEFAULT_GSHEET_URL)
         df_all = None
         if active_url:
             try:

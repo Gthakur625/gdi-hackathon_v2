@@ -425,15 +425,21 @@ def reply(q):
     # ── Health / overall summary ──────────────────────────────────────────────
     if has("health","score","overall","summary","status","how am i","how are we","dashboard","overview") \
        or (hasw("health","score","overall","performance","doing") and hasw("my","our","how","what","show")):
-        risk="Low Risk ✅" if hs>=80 else ("Medium Risk ⚠️" if hs>=65 else "High Risk 🚨")
-        fixes=[]
+        risk  = "Low Risk ✅" if hs>=80 else ("Medium Risk ⚠️" if hs>=65 else "High Risk 🚨")
+        pend  = m.get("pending_count", 0)
+        att   = m.get("attempted_total", m["total"])
+        fixes = []
         if m["rto_pct"]>20:   fixes.append(f"RTO {m['rto_pct']:.0f}% — activate Order Confirmation + Address Verification")
         if m["ndr_pct"]>15:   fixes.append(f"{m['ndr_count']:,} NDR backlog — activate AI Calling now")
         if m["cod_pct"]>60:   fixes.append(f"COD {m['cod_pct']:.0f}% — activate WhatsApp AI NDR")
-        text=(f"**Health Score: {hs:.0f}/100 — {risk}**\n\n"
-              f"- Delivery: **{m['delivery_pct']:.1f}%** | RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}**\n"
-              f"- COD: **{m['cod_pct']:.1f}%** | Total Shipments: **{m['total']:,}**\n\n"
-              +(f"**Priority Actions:**\n"+"\n".join(f"- {f}" for f in fixes) if fixes else "✅ No critical issues."))
+        text  = (f"**Health Score: {hs:.0f}/100 — {risk}**\n\n"
+                 f"- Delivery: **{m['delivery_pct']:.1f}%** ({m['delivered']:,} delivered out of {att:,} attempted)\n"
+                 f"- RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}** | COD: **{m['cod_pct']:.1f}%**\n"
+                 f"- Total picked up in period: **{m['total']:,}**\n")
+        if pend > 0:
+            text += (f"- ℹ️ **{pend:,} shipments still In Transit / Pending Pickup** — "
+                     f"these are excluded from delivery % (not yet attempted)\n")
+        text += "\n" + (f"**Priority Actions:**\n"+"\n".join(f"- {f}" for f in fixes) if fixes else "✅ No critical issues.")
         return text, ["Simulate AI Calling","Compare all sellers","Show RTO causes","Give me action plan"], None, None
 
     # ── Action plan ──────────────────────────────────────────────────────────

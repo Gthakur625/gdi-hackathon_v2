@@ -126,16 +126,27 @@ st.markdown(f"""
 
 # KPI row
 c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+pending_count = m.get("pending_count", 0)
 for col, lbl, val, clr, sub in [
-    (c1,"Delivery",       f"{m['delivery_pct']:.1f}%", "#34D399", f"{m['delivered']:,} delivered"),
+    (c1,"Delivery %",     f"{m['delivery_pct']:.1f}%", "#34D399",
+     f"{m['delivered']:,} of {m['attempted_total']:,} attempted"),
     (c2,"RTO Rate",       f"{m['rto_pct']:.1f}%",      "#F87171", f"{m['rto_count']:,} returned"),
-    (c3,"NDR Active",     f"{m['ndr_count']:,}",        "#FBBF24", "needs action"),
-    (c4,"Shipments",      f"{m['total']:,}",            "#60A5FA", "in current view"),
+    (c3,"NDR Active",     f"{m['ndr_count']:,}",        "#FBBF24", "needs resolution"),
+    (c4,"In Transit",     f"{pending_count:,}",         "#6B7280", "pending · excluded from %"),
     (c5,"COD Share",      f"{m['cod_pct']:.1f}%",       "#C084FC", f"₹{m['avg_order_value']:,.0f} avg order"),
     (c6,"Couriers",       f"{len(cour_perf)}",          "#818CF8", "3PL partners"),
     (c7,"VAS Unlock",     f"₹{total_pot:,}",            "#34D399", "revenue potential"),
 ]:
     col.markdown(_card(lbl,val,clr,sub), unsafe_allow_html=True)
+
+if pending_count > 0:
+    st.markdown(
+        f'<div style="background:rgba(107,114,128,0.1);border:1px solid rgba(107,114,128,0.25);'
+        f'border-radius:8px;padding:8px 14px;font-size:0.82rem;color:#9CA3AF;margin-bottom:10px;">'
+        f'ℹ️ <b style="color:#D1D5DB;">{pending_count:,} shipments</b> are still In Transit / Pending Pickup '
+        f'for the selected pickup date range — these are <b>excluded from the Delivery %</b> calculation. '
+        f'Ask GDI Agent for a breakdown.</div>',
+        unsafe_allow_html=True)
 
 # Anomalies
 if anomalies:
