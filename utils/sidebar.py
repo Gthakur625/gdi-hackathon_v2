@@ -204,12 +204,18 @@ def _parse_uploaded_mis(df):
 
     def clean_status(v):
         v = str(v).lower().strip()
-        if "rto" in v:                   return "RTO"   # catch "rto delivered" before "deliver"
-        if "deliver" in v:               return "Delivered"
-        if "return" in v:                return "RTO"
-        if "ndr" in v or "undeliver" in v or "attempt" in v or "fail" in v: return "NDR"
-        if "transit" in v or "out_for" in v or "ofd" in v: return "Delivered"
-        return "Delivered"
+        if "rto" in v:                                        return "RTO"
+        if v in ("delivered", "delivery successful"):         return "Delivered"
+        if "deliver" in v and "undeliver" not in v:          return "Delivered"
+        if "return" in v:                                     return "RTO"
+        if "ndr" in v or "undeliver" in v:                   return "NDR"
+        if "attempt" in v or "fail" in v:                    return "NDR"
+        # In-transit statuses — NOT delivered yet
+        if "transit" in v or "ofd" in v or "out for" in v:  return "In Transit"
+        if "pickup" in v or "picked" in v:                   return "In Transit"
+        if "booked" in v or "manifest" in v:                 return "In Transit"
+        if "cancel" in v:                                     return "Cancelled"
+        return "In Transit"   # unknown = not yet delivered
     df["delivery_status"] = df["delivery_status"].apply(clean_status)
 
     if rto_flag_col is None or rto_flag_col in rename:
@@ -292,11 +298,16 @@ def render_sidebar_and_get_data():
                 "text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;'>"
                 "📊 Data Source</div>", unsafe_allow_html=True)
 
+    # Remember the last selected source across page navigations
+    default_src_idx = 0 if st.session_state.get("gsheet_url") else 2
     src_choice = sb.radio(
         "Data Source",
         ["🔗 Google Sheet (Live)", "📁 Upload CSV / Excel", "📋 Demo Data"],
+        index=st.session_state.get("src_choice_idx", default_src_idx),
         label_visibility="collapsed",
+        key="src_radio",
     )
+    st.session_state["src_choice_idx"] = ["🔗 Google Sheet (Live)","📁 Upload CSV / Excel","📋 Demo Data"].index(src_choice)
 
     df_all  = None
     src_label = ""

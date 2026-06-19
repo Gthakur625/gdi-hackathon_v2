@@ -5,8 +5,9 @@ import pandas as pd
 import numpy as np
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils.styles  import apply_styles
-from utils.sidebar import render_sidebar_and_get_data
+from utils.styles      import apply_styles
+from utils.sidebar     import render_sidebar_and_get_data
+from utils.chat_widget import render_chat_button
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
                            compute_courier_perf, compute_state_perf, get_recommendations,
                            get_anomalies)
@@ -402,28 +403,5 @@ if recs:
           </div>
         </div>""", unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ASK GDI AGENT BANNER
-# ══════════════════════════════════════════════════════════════════════════════
-m2 = compute_kpis(df)
-st.markdown(f"""
-<div class="saas-card" style="background:linear-gradient(135deg,rgba(79,70,229,0.15) 0%,
-     rgba(124,58,237,0.1) 100%);border:1px solid rgba(79,70,229,0.3);
-     text-align:center;padding:28px 20px;margin-top:8px;">
-  <div style="font-size:2.2rem;margin-bottom:6px;">🤖</div>
-  <h3 style="color:#FFFFFF;font-size:1.2rem;font-weight:700;margin:0 0 8px;">
-    Ask GDI Agent About {"  " + selected_seller if selected_seller != "📊 All Sellers" else "Your Data"}</h3>
-  <p style="color:#9CA3AF;font-size:0.85rem;max-width:580px;margin:0 auto 16px;line-height:1.6;">
-    {m2['total']:,} shipments loaded. Ask about products, couriers, RTO causes, VAS recommendations — in plain English.
-  </p>
-  <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
-    {"".join(f'<span style="background:rgba(129,140,248,0.1);color:#818CF8;border:1px solid rgba(129,140,248,0.25);padding:4px 12px;border-radius:99px;font-size:0.78rem;font-weight:600;">{q}</span>'
-    for q in ["Top selling products","Will AI Calling help?","Which courier is best?","Why is RTO high?","COD vs Prepaid"])}
-  </div>
-  <a href="/7_AI_Chat_Assistant" target="_self"
-     style="background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;
-            padding:11px 28px;border-radius:10px;font-weight:700;font-size:0.92rem;
-            text-decoration:none;display:inline-block;box-shadow:0 4px 16px rgba(79,70,229,0.4);">
-    🤖 Open Ask GDI Agent →
-  </a>
-</div>""", unsafe_allow_html=True)
+# ── Ask GDI Agent inline button (opens dialog popup, no page redirect) ────────
+render_chat_button(df)

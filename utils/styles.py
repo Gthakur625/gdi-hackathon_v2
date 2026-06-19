@@ -91,29 +91,14 @@ def apply_styles():
     /* ── Divider ── */
     hr { border:0; height:1px; background:#1F2937; margin:16px 0; }
 
-    /* ── Floating Ask GDI button (pure CSS, no JS) ── */
-    .gdi-float-wrap {
-        position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-    }
-    .gdi-float-btn {
-        background: linear-gradient(135deg, #4F46E5, #7C3AED);
-        color: #FFFFFF !important; padding: 12px 20px; border-radius: 50px;
-        font-weight: 700; font-size: 0.88rem; text-decoration: none !important;
-        display: inline-flex; align-items: center; gap: 8px;
-        box-shadow: 0 4px 20px rgba(79,70,229,0.5);
-        font-family: 'Outfit', sans-serif;
-        transition: transform 0.2s, box-shadow 0.2s;
-        border: 1.5px solid rgba(255,255,255,0.15);
-    }
-    .gdi-float-btn:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 30px rgba(79,70,229,0.65);
-    }
+    /* ── Simulation card ── */
+    .sim-card{background:#0B0F19;border:1px solid rgba(79,70,229,0.5);border-radius:12px;
+              padding:16px 20px;margin:8px 0 12px;}
+    .sim-row{display:flex;justify-content:space-between;padding:7px 0;
+             border-bottom:1px solid #1F2937;font-size:0.84rem;}
+    .sim-row:last-child{border-bottom:none;}
+    .qchip{display:inline-block;background:rgba(79,70,229,0.10);color:#818CF8;
+           border:1px solid rgba(79,70,229,0.25);padding:4px 12px;border-radius:99px;
+           font-size:0.77rem;font-weight:600;margin:3px 3px 0 0;}
     </style>
-
-    <div class="gdi-float-wrap">
-      <a href="/7_AI_Chat_Assistant" target="_self" class="gdi-float-btn">
-        🤖 Ask GDI Agent
-      </a>
-    </div>
     """, unsafe_allow_html=True)
