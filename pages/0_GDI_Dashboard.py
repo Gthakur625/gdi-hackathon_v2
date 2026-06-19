@@ -299,70 +299,148 @@ if is_admin and selected_seller == "📊 All Sellers":
                     f'<div style="color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;margin-bottom:8px;">SCOREBOARD</div>'
                     f'{rows_html}</div>', unsafe_allow_html=True)
 
-# Reset m for charts below (in case seller was selected)
+# Reset m for sections below (in case seller was selected)
 m = compute_kpis(df)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TOP PRODUCTS + PRICING BAND
+# TOP PRODUCTS + PRICING BAND — AI INSIGHTS (text, not charts)
 # ══════════════════════════════════════════════════════════════════════════════
 if "product_name" in df.columns:
-    st.markdown("<div class='section-title'>📦 Top Products & Pricing Band</div>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#9CA3AF;font-size:0.83rem;margin:-8px 0 12px;'>Top products by volume and RTO by price range — identifies where to restrict COD and apply Order Confirmation Via AI.</p>", unsafe_allow_html=True)
+    seller_label = selected_seller if (is_admin and selected_seller != "📊 All Sellers") else None
+    st.markdown(
+        f"<div class='section-title'>📦 Product Intelligence"
+        f"{' — ' + seller_label if seller_label else ''}</div>",
+        unsafe_allow_html=True)
 
+    # ── compute product table ─────────────────────────────────────────────────
     pg_df = df.groupby("product_name").agg(
         total    =("delivery_status","count"),
         delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
         rto      =("delivery_status", lambda x:(x=="RTO").sum()),
+        ndr      =("delivery_status", lambda x:(x=="NDR").sum()),
+        cod      =("payment_type",    lambda x:(x=="COD").sum()),
         revenue  =("order_value","sum"),
+        avg_val  =("order_value","mean"),
     ).reset_index()
-    pg_df["rto_rate"] = pg_df["rto"]/pg_df["total"].clip(lower=1)*100
-    pg_df["del_rate"] = pg_df["delivered"]/pg_df["total"].clip(lower=1)*100
-    top10 = pg_df.sort_values("delivered",ascending=False).head(10)
+    pg_df["dr"]      = pg_df["delivered"] / pg_df["total"].clip(lower=1) * 100
+    pg_df["rr"]      = pg_df["rto"]       / pg_df["total"].clip(lower=1) * 100
+    pg_df["cod_pct"] = pg_df["cod"]       / pg_df["total"].clip(lower=1) * 100
+    avg_dr = m["delivery_pct"]; avg_rr = m["rto_pct"]
 
-    tp1,tp2 = st.columns(2)
-    with tp1:
-        fig_prod = px.bar(top10, x="product_name", y="delivered",
-            color="del_rate", color_continuous_scale=["#4F46E5","#34D399"],
-            text_auto=True, labels={"product_name":"","delivered":"Delivered","del_rate":"Delivery %"})
-        fig_prod.update_layout(**_fig(300), showlegend=False, coloraxis_showscale=False,
-            title=dict(text="Top 10 Products — Delivered Units",font=dict(color="#FFFFFF",size=13)),
-            xaxis=dict(tickangle=-30,showgrid=False), yaxis=dict(gridcolor="#1F2937"))
-        st.plotly_chart(fig_prod, use_container_width=True)
+    # check NDD zones
+    ndd_partners = ["Elastic Run", "PiknDel", "Blitz"]
+    zone_col = "zone" if "zone" in df.columns else ("standard_zone" if "standard_zone" in df.columns else None)
+    zone_ab_pct = 0
+    if zone_col:
+        zone_ab = df[df[zone_col].astype(str).str.upper().isin(["A","B","ZONE A","ZONE B"])]
+        zone_ab_pct = len(zone_ab) / max(len(df),1) * 100
 
-    with tp2:
+    top5 = pg_df.sort_values("total", ascending=False).head(5)
+    pi1, pi2 = st.columns([3, 2])
+
+    with pi1:
+        st.markdown(
+            "<div style='color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;"
+            "letter-spacing:0.05em;margin-bottom:10px;'>TOP 5 PRODUCTS — AI INSIGHTS</div>",
+            unsafe_allow_html=True)
+        for rank, (_, row) in enumerate(top5.iterrows(), 1):
+            dr_icon = "✅" if row["dr"] >= avg_dr else ("⚠️" if row["dr"] >= avg_dr-10 else "🚨")
+            dr_col  = "#34D399" if row["dr"] >= avg_dr else ("#FBBF24" if row["dr"] >= avg_dr-10 else "#F87171")
+
+            # generate personalized insight
+            if row["rr"] > avg_rr * 1.5 and row["cod_pct"] > 65:
+                tip  = "💡 High RTO + High COD — activate <b>Order Confirmation Via AI</b> before dispatch"
+                tip_c= "#FBBF24"
+            elif row["rr"] > avg_rr * 1.5:
+                tip  = "💡 High RTO — restrict COD in UP/Bihar; try <b>AI Calling</b> for NDR recovery"
+                tip_c= "#F87171"
+            elif row["ndr"] > row["total"] * 0.15:
+                tip  = "💡 High NDR — activate <b>WhatsApp AI NDR</b> messaging for failed deliveries"
+                tip_c= "#FBBF24"
+            elif row["dr"] >= avg_dr + 5 and zone_ab_pct > 30:
+                tip  = f"💡 Top performer — consider <b>NDD</b> (Elastic Run/PiknDel) for Zone A/B orders"
+                tip_c= "#34D399"
+            else:
+                tip  = f"💡 Near average — <b>WhatsApp NDR</b> can recover ~{int(row['rto']*0.08):,} RTOs/month"
+                tip_c= "#818CF8"
+
+            st.markdown(f"""
+            <div style="background:#111827;border:1px solid #1F2937;border-radius:10px;
+                        padding:12px 16px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="color:#FFFFFF;font-weight:700;font-size:0.9rem;">
+                  {rank}. {row['product_name']}</span>
+                <span style="color:{dr_col};font-weight:800;font-size:0.95rem;">{row['dr']:.0f}% {dr_icon}</span>
+              </div>
+              <div style="display:flex;gap:16px;font-size:0.8rem;color:#9CA3AF;margin-bottom:8px;">
+                <span>{row['total']:,} orders</span>
+                <span>RTO <b style="color:#F87171;">{row['rr']:.0f}%</b></span>
+                <span>NDR <b style="color:#FBBF24;">{row['ndr']:,}</b></span>
+                <span>COD <b style="color:#C084FC;">{row['cod_pct']:.0f}%</b></span>
+                <span>₹{row['avg_val']:,.0f} avg</span>
+              </div>
+              <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:7px 10px;
+                          font-size:0.78rem;color:{tip_c};">{tip}</div>
+            </div>""", unsafe_allow_html=True)
+
+    with pi2:
+        st.markdown(
+            "<div style='color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;"
+            "letter-spacing:0.05em;margin-bottom:10px;'>PRICING BAND INSIGHTS</div>",
+            unsafe_allow_html=True)
         bins  = [0,499,999,1999,4999,float("inf")]
         blbls = ["₹0–499","₹500–999","₹1K–2K","₹2K–5K","₹5K+"]
         df_pb = df.copy()
-        df_pb["price_band"] = pd.cut(df_pb["order_value"],bins=bins,labels=blbls,right=True)
-        pb = df_pb.groupby("price_band",observed=True).agg(
+        df_pb["pb"] = pd.cut(df_pb["order_value"],bins=bins,labels=blbls,right=True)
+        pb = df_pb.groupby("pb",observed=True).agg(
             total    =("delivery_status","count"),
             delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
             rto      =("delivery_status", lambda x:(x=="RTO").sum()),
+            cod      =("payment_type",    lambda x:(x=="COD").sum()),
         ).reset_index()
-        pb["del_rate"] = pb["delivered"]/pb["total"].clip(lower=1)*100
-        pb["rto_rate"] = pb["rto"]/pb["total"].clip(lower=1)*100
+        pb["dr"]      = pb["delivered"] / pb["total"].clip(lower=1) * 100
+        pb["rr"]      = pb["rto"]       / pb["total"].clip(lower=1) * 100
+        pb["cod_pct"] = pb["cod"]       / pb["total"].clip(lower=1) * 100
 
-        fig_pb = go.Figure()
-        fig_pb.add_trace(go.Bar(x=pb["price_band"].astype(str), y=pb["del_rate"],
-            name="Delivery %", marker_color="#34D399",
-            text=[f"{v:.0f}%" for v in pb["del_rate"]], textposition="auto"))
-        fig_pb.add_trace(go.Bar(x=pb["price_band"].astype(str), y=pb["rto_rate"],
-            name="RTO %", marker_color="#F87171",
-            text=[f"{v:.0f}%" for v in pb["rto_rate"]], textposition="auto"))
-        fig_pb.update_layout(**_fig(300), barmode="group", showlegend=True,
-            legend=dict(font_color="#9CA3AF",bgcolor="rgba(0,0,0,0)",orientation="h",y=1.18,x=0),
-            title=dict(text="Delivery & RTO % by Price Band",font=dict(color="#FFFFFF",size=13)),
-            xaxis=dict(showgrid=False), yaxis=dict(gridcolor="#1F2937",ticksuffix="%"))
-        st.plotly_chart(fig_pb, use_container_width=True)
+        for _, row in pb.iterrows():
+            if row["total"] == 0: continue
+            e  = "🚨" if row["rr"]>30 else ("⚠️" if row["rr"]>20 else "✅")
+            ec = "#F87171" if row["rr"]>30 else ("#FBBF24" if row["rr"]>20 else "#34D399")
+            if row["rr"] > 30 and row["cod_pct"] > 60:
+                tip = "Restrict COD + Order Confirmation Via AI"
+            elif row["rr"] > 20:
+                tip = "Restrict COD for high-risk states in this band"
+            elif row["dr"] > 85:
+                tip = "Strong band — NDD upgrade for Zone A/B"
+            else:
+                tip = "WhatsApp NDR for failed COD deliveries"
+            st.markdown(f"""
+            <div style="background:#111827;border:1px solid #1F2937;border-radius:8px;
+                        padding:10px 14px;margin-bottom:6px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <b style="color:#FFFFFF;font-size:0.88rem;">{e} {row['pb']}</b>
+                <span style="color:{ec};font-weight:700;font-size:0.88rem;">{row['dr']:.0f}% del</span>
+              </div>
+              <div style="font-size:0.77rem;color:#9CA3AF;margin:4px 0;">
+                {row['total']:,} orders · RTO <b style="color:{ec};">{row['rr']:.0f}%</b>
+                · COD <b>{row['cod_pct']:.0f}%</b>
+              </div>
+              <div style="font-size:0.76rem;color:#818CF8;margin-top:4px;">💡 {tip}</div>
+            </div>""", unsafe_allow_html=True)
 
-    top_rto = pg_df.nlargest(3,"rto_rate")
-    if len(top_rto)>0:
-        chips = "".join(
-            f'<span style="background:rgba(248,113,113,0.1);color:#F87171;border:1px solid rgba(248,113,113,0.3);'
-            f'padding:4px 10px;border-radius:99px;font-size:0.78rem;margin:3px;display:inline-block;">'
-            f'{row["product_name"]} — {row["rto_rate"]:.1f}% RTO</span>'
-            for _,row in top_rto.iterrows())
-        st.markdown(f'<div style="margin:4px 0 12px;"><span style="color:#9CA3AF;font-size:0.78rem;font-weight:600;">⚠️ Highest RTO: </span>{chips}</div>', unsafe_allow_html=True)
+        # NDD opportunity callout
+        if zone_ab_pct > 0:
+            st.markdown(f"""
+            <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);
+                        border-radius:8px;padding:10px 14px;margin-top:8px;">
+              <div style="color:#34D399;font-weight:700;font-size:0.82rem;margin-bottom:4px;">
+                🚀 NDD Opportunity</div>
+              <div style="color:#9CA3AF;font-size:0.78rem;line-height:1.5;">
+                <b style="color:#FFFFFF;">{zone_ab_pct:.0f}%</b> of shipments in Zone A/B<br>
+                Partners: <b>Elastic Run · PiknDel · Blitz</b><br>
+                Next day delivery → fewer NDRs, happier customers
+              </div>
+            </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GEOGRAPHIC RTO
