@@ -33,15 +33,28 @@ DEFAULT_METABASE_QID     = "4570"
 # ── Metabase helpers ──────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
-def _fetch_metabase(base_url: str, question_id: int, auth_value: str, auth_type: str = "api_key"):
+def _fetch_metabase(base_url: str, question_id: int, auth_value: str,
+                    auth_type: str = "api_key",
+                    start_date: str = None, end_date: str = None):
     import requests, io, warnings
+    from datetime import datetime, timedelta
     warnings.filterwarnings("ignore")
     if auth_type == "api_key":
         headers = {"x-api-key": auth_value}
     else:
         headers = {"X-Metabase-Session": auth_value}
+
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
     url = f"{base_url.rstrip('/')}/api/card/{question_id}/query/csv"
-    resp = requests.post(url, headers=headers, timeout=120)
+    body = {"parameters": [
+        {"type": "date/single", "target": ["variable", ["template-tag", "shipping_start_date"]], "value": start_date},
+        {"type": "date/single", "target": ["variable", ["template-tag", "shipping_end_date"]],   "value": end_date},
+    ]}
+    resp = requests.post(url, headers=headers, json=body, timeout=120)
     resp.raise_for_status()
     df = pd.read_csv(io.StringIO(resp.text), on_bad_lines="skip", low_memory=False)
     return df
@@ -548,6 +561,19 @@ def render_sidebar_and_get_data():
                 else:
                     sb.warning("Fill in all Metabase fields above")
 
+        # Date range for Metabase query (limits data pulled — much faster)
+        sb.markdown("<div style='color:#6B7280;font-size:0.72rem;margin-bottom:4px;'>Shipping Date Range</div>",
+                    unsafe_allow_html=True)
+        from datetime import datetime as _dt, timedelta as _td
+        _mb_default_start = (_dt.now() - _td(days=30)).date()
+        _mb_default_end   = _dt.now().date()
+        mb_dates = sb.date_input(
+            "Metabase Date Range",
+            value=[_mb_default_start, _mb_default_end],
+            label_visibility="collapsed",
+            key="mb_date_range",
+        )
+
         if sb.button("🔄 Refresh Data", use_container_width=True, key="mb_refresh"):
             st.cache_data.clear()
 
@@ -559,16 +585,23 @@ def render_sidebar_and_get_data():
                           if mb_auth_type == "api_key"
                           else st.session_state.get("metabase_token"))
 
+        mb_start = str(mb_dates[0]) if len(mb_dates) == 2 else str(_mb_default_start)
+        mb_end   = str(mb_dates[1]) if len(mb_dates) == 2 else str(_mb_default_end)
+
         if mb_auth_value and mb_active_url and mb_active_qid:
             try:
-                raw = _fetch_metabase(mb_active_url, int(mb_active_qid), mb_auth_value, mb_auth_type)
+                with sb.spinner(f"Fetching Metabase data ({mb_start} → {mb_end})..."):
+                    raw = _fetch_metabase(mb_active_url, int(mb_active_qid),
+                                          mb_auth_value, mb_auth_type,
+                                          mb_start, mb_end)
                 df_all  = _parse_uploaded_mis(raw)
                 src_label = "Metabase"
                 sb.markdown(
                     f"<div style='background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);"
                     f"border-radius:8px;padding:8px 12px;margin-top:6px;'>"
                     f"<span style='color:#60A5FA;font-weight:700;'>✅ {len(df_all):,} rows from Metabase</span>"
-                    f"<div style='color:#6B7280;font-size:0.7rem;margin-top:2px;'>Question #{mb_active_qid} · Auto-refreshes every 5 min</div>"
+                    f"<div style='color:#6B7280;font-size:0.7rem;margin-top:2px;'>"
+                    f"Question #{mb_active_qid} · {mb_start} → {mb_end} · Auto-refreshes every 5 min</div>"
                     f"</div>", unsafe_allow_html=True)
             except Exception as e:
                 sb.error(f"❌ Query error: {e}")
@@ -611,16 +644,18 @@ def render_sidebar_and_get_data():
         src_label = "Demo Data"
         sb.info("Showing demo data. Connect a Google Sheet or upload your CSV to analyse real data.")
 
-    # ── Ensure date columns ───────────────────────────────────────────────────
+    # ── Ensure date columns (strip timezone to avoid comparison errors) ────────
     if "shipment_date" not in df_all.columns:
         df_all["shipment_date"] = pd.Timestamp.now()
-    df_all["shipment_date"] = pd.to_datetime(df_all["shipment_date"], errors="coerce")
-    df_all["shipment_date"].fillna(pd.Timestamp.now(), inplace=True)
+    df_all["shipment_date"] = pd.to_datetime(df_all["shipment_date"], errors="coerce", utc=True)
+    df_all["shipment_date"] = df_all["shipment_date"].dt.tz_localize(None)
+    df_all["shipment_date"] = df_all["shipment_date"].fillna(pd.Timestamp.now())
 
     if "pickup_date" not in df_all.columns:
         df_all["pickup_date"] = df_all["shipment_date"]
-    df_all["pickup_date"] = pd.to_datetime(df_all["pickup_date"], errors="coerce")
-    df_all["pickup_date"].fillna(df_all["shipment_date"], inplace=True)
+    df_all["pickup_date"] = pd.to_datetime(df_all["pickup_date"], errors="coerce", utc=True)
+    df_all["pickup_date"] = df_all["pickup_date"].dt.tz_localize(None)
+    df_all["pickup_date"] = df_all["pickup_date"].fillna(df_all["shipment_date"])
 
     # ── Filters ───────────────────────────────────────────────────────────────
     sb.markdown("<hr style='border:0;height:1px;background:#1F2937;margin:16px 0 12px;'>",
