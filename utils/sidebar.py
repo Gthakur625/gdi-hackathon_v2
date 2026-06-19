@@ -334,11 +334,16 @@ def render_sidebar_and_get_data():
         "letter-spacing:0.06em;font-weight:600;margin-bottom:8px;'>🤖 AI Consultant</div>",
         unsafe_allow_html=True,
     )
-    st.sidebar.page_link("pages/7_AI_Chat_Assistant.py", label="Ask GDI Agent", icon="🤖")
-    st.sidebar.markdown(
-        "<div style='color:#6B7280;font-size:0.73rem;margin-top:4px;'>"
-        "Ask about sellers, products, couriers & VAS</div>",
-        unsafe_allow_html=True,
-    )
+    st.sidebar.markdown("""
+<a href="/7_AI_Chat_Assistant" target="_self"
+   style="display:block;background:linear-gradient(135deg,#4F46E5,#7C3AED);
+          color:#fff !important;padding:10px 16px;border-radius:10px;
+          font-weight:700;font-size:0.88rem;text-decoration:none;
+          text-align:center;margin-bottom:6px;">
+  🤖 Ask GDI Agent
+</a>
+<div style='color:#6B7280;font-size:0.73rem;text-align:center;'>
+  Ask about sellers, products, couriers & VAS
+</div>""", unsafe_allow_html=True)
 
     return df

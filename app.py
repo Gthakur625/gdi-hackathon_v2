@@ -410,12 +410,16 @@ st.markdown("""
   </div>
 </div>""", unsafe_allow_html=True)
 
-col_btn = st.columns([1, 2, 1])[1]
-with col_btn:
-    st.page_link("pages/7_AI_Chat_Assistant.py",
-                 label="Open Ask GDI Agent →",
-                 icon="🤖",
-                 use_container_width=True)
+st.markdown("""
+<div style="text-align:center;margin-top:16px;">
+  <a href="/7_AI_Chat_Assistant" target="_self"
+     style="background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;
+            padding:13px 36px;border-radius:10px;font-weight:700;font-size:1rem;
+            text-decoration:none;display:inline-block;
+            box-shadow:0 4px 18px rgba(79,70,229,0.4);">
+    🤖 Open Ask GDI Agent →
+  </a>
+</div>""", unsafe_allow_html=True)
 
 # ── MODULE GUIDE ─────────────────────────────────────────────────────────────
 st.markdown("<div class='section-title'>🧭 GDI Module Guide</div>", unsafe_allow_html=True)
