@@ -5,9 +5,10 @@ import pandas as pd
 import numpy as np
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils.styles      import apply_styles
-from utils.sidebar     import render_sidebar_and_get_data
-from utils.chat_widget import render_chat_button
+from utils.styles               import apply_styles
+from utils.sidebar              import render_sidebar_and_get_data
+from utils.chat_widget          import render_chat_button
+from utils.seller_intelligence  import render_seller_intelligence
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
                            compute_courier_perf, compute_state_perf, get_recommendations,
                            get_anomalies)
@@ -525,6 +526,29 @@ if "product_name" in df.columns:
                 Next day delivery → fewer NDRs, happier customers
               </div>
             </div>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SELLER INTELLIGENCE LAYER (shown when a specific seller is selected)
+# ══════════════════════════════════════════════════════════════════════════════
+if is_admin and selected_seller != "📊 All Sellers":
+    st.markdown("<div class='section-title'>🔬 Seller Intelligence</div>",
+                unsafe_allow_html=True)
+    render_seller_intelligence(
+        df=df,
+        seller_name=selected_seller,
+        overall_delivery_pct=compute_kpis(df_full)["delivery_pct"],
+        overall_rto_pct=compute_kpis(df_full)["rto_pct"],
+    )
+elif not is_admin:
+    # Single-seller mode — always show intelligence
+    st.markdown("<div class='section-title'>🔬 Seller Intelligence</div>",
+                unsafe_allow_html=True)
+    render_seller_intelligence(
+        df=df,
+        seller_name=all_sellers[0] if all_sellers else "Your Account",
+        overall_delivery_pct=m["delivery_pct"],
+        overall_rto_pct=m["rto_pct"],
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GEOGRAPHIC RTO
