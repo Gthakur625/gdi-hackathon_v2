@@ -9,6 +9,7 @@ from utils.styles               import apply_styles
 from utils.sidebar              import render_sidebar_and_get_data
 from utils.chat_widget          import render_chat_button
 from utils.seller_intelligence  import render_seller_intelligence
+from utils.agent_ops            import render_agent_ops
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
                            compute_courier_perf, compute_state_perf, get_recommendations,
                            get_anomalies)
@@ -232,6 +233,11 @@ if pending_count > 0:
         f'(courier not yet collected) — excluded from Delivery %. '
         f'In Transit shipments are included in the denominator.</div>',
         unsafe_allow_html=True)
+
+# ── AGENTIC OPERATIONS CONSULTANT ────────────────────────────────────────────
+st.markdown("<div class='section-title'>🤖 GDI Agentic Operations Consultant</div>",
+            unsafe_allow_html=True)
+render_agent_ops(df, m, cour_perf, state_perf)
 
 # Anomalies
 if anomalies:
