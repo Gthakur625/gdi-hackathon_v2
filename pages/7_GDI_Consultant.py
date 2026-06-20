@@ -691,9 +691,9 @@ st.markdown(f"""
 </div>""", unsafe_allow_html=True)
 
 # Quick chips
-quick = ["Simulate AI Calling","Simulate WhatsApp NDR","Simulate Order Confirmation",
-         "Compare all sellers","Top selling products","Why is RTO high?",
-         "Show courier performance","Give me action plan"]
+quick = ["Product performance","Courier allocation","Pincode intelligence",
+         "VAS opportunity","Compare all sellers","Why is RTO high?",
+         "Simulate AI Calling","Simulate WhatsApp NDR"]
 qcols = st.columns(4)
 sel_q = None
 for i, qq in enumerate(quick):

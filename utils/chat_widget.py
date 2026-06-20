@@ -1,6 +1,7 @@
 """
-Inline GDI Agent chat dialog — opened via floating Joker icon.
-Call render_chat_button(df) from any page to add the floating Joker trigger.
+JaGau AI — Floating chat widget.
+Simple, reliable: pure CSS fixed button → st.dialog on click.
+No JS hacks, no iframe injection, no hidden buttons.
 """
 import streamlit as st
 import pandas as pd
@@ -18,212 +19,385 @@ def _find(q_lower, candidates):
         if name.lower() in q_lower:
             return name
     for name in candidates:
-        ws = [w for w in _words(name) if len(w) >= 5]
+        ws = [w for w in _words(name) if len(w) >= 4]
         if ws and any(w in q_lower for w in ws):
             return name
     return None
 
 
-def _sim_card(title, rows):
-    rows_html = "".join(
-        f'<div class="sim-row">'
-        f'<span style="color:#9CA3AF;">{r[0]}</span>'
-        f'<span style="color:{"#34D399" if r[2] else "#FFFFFF"};font-weight:{"800" if r[2] else "600"};">{r[1]}</span>'
-        f'</div>'
-        for r in rows
-    )
-    st.markdown(
-        f'<div class="sim-card">'
-        f'<div style="color:#818CF8;font-weight:800;font-size:0.9rem;margin-bottom:10px;">📊 {title}</div>'
-        f'{rows_html}</div>',
-        unsafe_allow_html=True,
-    )
+def _obs_card(obs, cause, rec, impact):
+    """Formats a structured KAM-style response."""
+    return (f"**📊 Observation:** {obs}\n\n"
+            f"**🔍 Root Cause:** {cause}\n\n"
+            f"**✅ Recommendation:** {rec}\n\n"
+            f"**📈 Expected Impact:** {impact}")
+
+
+def _product_table(df, top_n=8):
+    """Return a markdown table of top products with key metrics."""
+    if "product_name" not in df.columns:
+        return ""
+    pg = df.groupby("product_name").agg(
+        orders   =("delivery_status","count"),
+        delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
+        rto      =("delivery_status", lambda x:(x=="RTO").sum()),
+        ndr      =("ndr_status",      lambda x:(x=="Raised").sum()) if "ndr_status" in df.columns
+                   else ("delivery_status","count"),
+    ).reset_index()
+    pg["del_pct"] = pg["delivered"]/pg["orders"].clip(lower=1)*100
+    pg["rto_pct"] = pg["rto"]/pg["orders"].clip(lower=1)*100
+
+    rows = []
+    for _, r in pg.sort_values("orders", ascending=False).head(top_n).iterrows():
+        flag = "🚨" if r["rto_pct"]>30 else ("⚠️" if r["rto_pct"]>20 else "✅")
+        rows.append(f"| {r['product_name'][:28]} | {int(r['orders']):,} | "
+                    f"{r['del_pct']:.0f}% | {r['rto_pct']:.0f}% {flag} |")
+
+    if not rows:
+        return ""
+    return ("| Product | Orders | Delivery% | RTO% |\n"
+            "|---------|--------|-----------|------|\n"
+            + "\n".join(rows))
+
+
+def _courier_table(cour_df, df, top_n=8):
+    """Return courier allocation recommendation table."""
+    if len(cour_df) == 0:
+        return ""
+    total = max(len(df), 1)
+    best_dr = cour_df["delivery_rate"].max()
+    rows = []
+    for _, r in cour_df.sort_values("delivery_rate", ascending=False).head(top_n).iterrows():
+        vol_pct = r["total"]/total*100
+        gap     = best_dr - r["delivery_rate"]
+        action  = "✅ Maintain" if gap < 3 else ("⬆️ Increase" if r["delivery_rate"] >= cour_df["delivery_rate"].mean() else "⬇️ Reduce")
+        rows.append(f"| {r['courier']} | {int(r['total']):,} ({vol_pct:.0f}%) | "
+                    f"{r['delivery_rate']:.0f}% | {r['rto_rate']:.0f}% | {action} |")
+    if not rows:
+        return ""
+    return ("| Courier | Volume | Delivery% | RTO% | Action |\n"
+            "|---------|--------|-----------|------|--------|\n"
+            + "\n".join(rows))
+
+
+def _pincode_table(df, top_n=10):
+    """4-type pincode intelligence table."""
+    if "pincode" not in df.columns:
+        return {}
+    pg = df.groupby("pincode").agg(
+        orders  =("delivery_status","count"),
+        del_    =("delivery_status", lambda x:(x=="Delivered").sum()),
+        rto     =("delivery_status", lambda x:(x=="RTO").sum()),
+        ndr     =("ndr_status",      lambda x:(x=="Raised").sum()) if "ndr_status" in df.columns
+                  else ("delivery_status","count"),
+        cod     =("payment_type",    lambda x:(x=="COD").sum()) if "payment_type" in df.columns
+                  else ("delivery_status","count"),
+        state   =("state","first") if "state" in df.columns else ("delivery_status","count"),
+    ).reset_index()
+    pg["dr"]   = pg["del_"]/pg["orders"].clip(lower=1)*100
+    pg["rr"]   = pg["rto"]/pg["orders"].clip(lower=1)*100
+    pg["ndrr"] = pg["ndr"]/pg["orders"].clip(lower=1)*100
+    pg["codr"] = pg["cod"]/pg["orders"].clip(lower=1)*100
+
+    best_courier = "top courier"
+    cour_df = compute_courier_perf(df)
+    if len(cour_df) > 0:
+        best_courier = cour_df.sort_values("delivery_rate", ascending=False).iloc[0]["courier"]
+
+    result = {}
+
+    # 1. Opportunity pincodes (high volume, high delivery)
+    opp = pg[(pg["orders"]>=3)&(pg["dr"]>=80)].nlargest(5,"orders")
+    if len(opp) > 0:
+        r = ["| Pincode | State | Orders | Delivery% |",
+             "|---------|-------|--------|-----------|"]
+        for _, row in opp.iterrows():
+            r.append(f"| {row['pincode']} | {str(row.get('state',''))[:10]} | {int(row['orders'])} | {row['dr']:.0f}% |")
+        result["opportunity"] = "\n".join(r)
+
+    # 2. High NDR pincodes
+    ndr_pins = pg[(pg["orders"]>=3)&(pg["ndrr"]>25)].nlargest(5,"ndrr")
+    if len(ndr_pins) > 0:
+        r = ["| Pincode | State | Orders | NDR% |",
+             "|---------|-------|--------|------|"]
+        for _, row in ndr_pins.iterrows():
+            r.append(f"| {row['pincode']} | {str(row.get('state',''))[:10]} | {int(row['orders'])} | {row['ndrr']:.0f}% |")
+        result["high_ndr"] = "\n".join(r)
+
+    # 3. Risk pincodes (high RTO + COD)
+    risk = pg[(pg["orders"]>=3)&(pg["rr"]>40)&(pg["codr"]>50)].nlargest(5,"rr")
+    if len(risk) > 0:
+        r = ["| Pincode | State | RTO% | COD% | Action |",
+             "|---------|-------|------|------|--------|"]
+        for _, row in risk.iterrows():
+            r.append(f"| {row['pincode']} | {str(row.get('state',''))[:10]} | {row['rr']:.0f}% | {row['codr']:.0f}% | Restrict COD |")
+        result["risk"] = "\n".join(r)
+
+    # 4. Courier mismatch (high RTO, likely wrong courier)
+    mismatch = pg[(pg["orders"]>=3)&(pg["rr"]>35)].nlargest(5,"rr")
+    if len(mismatch) > 0:
+        r = ["| Pincode | State | RTO% | Recommended Courier |",
+             "|---------|-------|------|---------------------|"]
+        for _, row in mismatch.iterrows():
+            r.append(f"| {row['pincode']} | {str(row.get('state',''))[:10]} | {row['rr']:.0f}% | {best_courier} |")
+        result["mismatch"] = "\n".join(r)
+
+    return result
 
 
 def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
-    """Compact reply function for the dialog chat."""
     ql  = q.lower().strip()
     qw  = _words(ql)
 
     def has(*p): return any(x in ql for x in p)
     def hasw(*w): return any(x in qw for x in w)
 
-    cod_df   = df[df["payment_type"] == "COD"]
-    prep_df  = df[df["payment_type"] == "Prepaid"]
-    cod_rto  = len(cod_df[cod_df["delivery_status"] == "RTO"])   / max(len(cod_df), 1)  * 100
-    prep_rto = len(prep_df[prep_df["delivery_status"] == "RTO"]) / max(len(prep_df), 1) * 100
-
-    best_c  = cour_df.sort_values("delivery_rate", ascending=False).iloc[0] if len(cour_df) > 0 else None
-    worst_c = cour_df.sort_values("delivery_rate").iloc[0]                  if len(cour_df) > 0 else None
-    worst_st= state_df.sort_values("rto_rate", ascending=False).iloc[0]     if len(state_df) > 0 else None
+    cod_df   = df[df["payment_type"]=="COD"] if "payment_type" in df.columns else pd.DataFrame()
+    prep_df  = df[df["payment_type"]=="Prepaid"] if "payment_type" in df.columns else pd.DataFrame()
+    cod_rto  = len(cod_df[cod_df["delivery_status"]=="RTO"])/max(len(cod_df),1)*100 if len(cod_df)>0 else 0
+    best_c   = cour_df.sort_values("delivery_rate",ascending=False).iloc[0] if len(cour_df)>0 else None
+    worst_c  = cour_df.sort_values("delivery_rate").iloc[0]                 if len(cour_df)>0 else None
+    worst_st = state_df.sort_values("rto_rate",ascending=False).iloc[0]    if len(state_df)>0 else None
 
     sel  = _find(ql, all_sellers)
-    cour = _find(ql, cour_df["courier"].tolist() if len(cour_df) > 0 else [])
-    stat = _find(ql, state_df["state"].tolist()  if len(state_df) > 0 else [])
-    prod = _find(ql, df["product_name"].unique().tolist()) if "product_name" in df.columns else None
+    cour = _find(ql, cour_df["courier"].tolist() if len(cour_df)>0 else [])
 
-    if has("ai calling", "simulate call", "ndr recovery", "calling benefit") \
-       or (hasw("calling", "call") and hasw("simulate", "benefit", "help", "impact")):
-        rec = int(m["ndr_count"] * 0.38)
-        rev = int(rec * m["avg_order_value"])
-        _sim_card("AI Calling — NDR Recovery Simulation", [
-            ("NDR Queue",               f"{m['ndr_count']:,} active",                    False),
-            ("Recovery Rate",           "38%",                                           False),
-            ("Shipments Recovered",     f"{rec:,} / month",                              False),
-            ("Revenue Recovered",       f"₹{rev:,} / month",                            True),
-            ("Total Value Unlocked",    f"₹{rev + int(m['ndr_count']*0.15*80):,}/month",True),
-        ])
-        return f"AI Calling can recover **{rec:,} NDR shipments** → **₹{rev:,}/month**. See simulation above."
-
-    if has("whatsapp", "whats app") or (hasw("whatsapp", "wa") and hasw("simulate", "benefit", "help")):
-        saved = int(m["rto_count"] * 0.08)
-        rev   = int(saved * m["avg_order_value"])
-        _sim_card("WhatsApp AI NDR — Simulation", [
-            ("COD Share",              f"{m['cod_pct']:.1f}%",                           False),
-            ("COD-RTO Rate",           f"{cod_rto:.1f}%",                                False),
-            ("RTOs Prevented",         f"{saved:,} / month",                             False),
-            ("Revenue Protected",      f"₹{rev:,} / month",                             True),
-        ])
-        return f"WhatsApp AI NDR prevents **{saved:,} RTOs/month** → **₹{rev:,}** revenue protected."
-
-    if has("order confirm", "confirmation", "fake order", "pre-dispatch"):
-        saved = int(m["rto_count"] * 0.12)
-        rev   = int(saved * m["avg_order_value"])
-        _sim_card("Order Confirmation Via AI — Simulation", [
-            ("Current RTO Rate",       f"{m['rto_pct']:.1f}%",                           False),
-            ("Fake Orders (est.)",     "~12% of RTOs",                                   False),
-            ("Orders Saved",           f"{saved:,} / month",                             False),
-            ("Revenue Impact",         f"₹{rev:,} / month",                             True),
-        ])
-        return f"Order Confirmation prevents **{saved:,} RTOs/month** before dispatch."
-
+    # ── Seller specific ──────────────────────────────────────────────────────
     if sel:
-        s_df = df[df["seller_name"] == sel]
-        sm   = compute_kpis(s_df); sm["vas_adoption_score"] = compute_vas_adoption_score(s_df)
+        s_df = df[df["seller_name"]==sel]
+        sm   = compute_kpis(s_df); sm["vas_adoption_score"]=compute_vas_adoption_score(s_df)
         sh   = compute_health_score(sm)
-        risk = "Low Risk" if sh>=80 else ("Medium Risk" if sh>=65 else "High Risk")
-        return (f"**{sel}** — {risk} · Health **{sh:.0f}/100**\n\n"
-                f"- Delivery: **{sm['delivery_pct']:.1f}%** | RTO: **{sm['rto_pct']:.1f}%** | NDR: **{sm['ndr_count']:,}**\n"
-                f"- Shipments: **{sm['total']:,}** | COD: **{sm['cod_pct']:.1f}%** | Avg: **₹{sm['avg_order_value']:,.0f}**")
+        risk = "Low Risk ✅" if sh>=80 else ("Medium Risk ⚠️" if sh>=65 else "High Risk 🚨")
+        tbl  = _product_table(s_df, top_n=5)
+        text = _obs_card(
+            obs=f"**{sel}** has Health Score **{sh:.0f}/100** ({risk}). "
+                f"Delivery: **{sm['delivery_pct']:.1f}%** | RTO: **{sm['rto_pct']:.1f}%** | "
+                f"NDR: **{sm['ndr_count']:,}** | COD: **{sm['cod_pct']:.1f}%**",
+            cause=(f"High COD share ({sm['cod_pct']:.0f}%) with low prepaid incentive" if sm['cod_pct']>65
+                   else f"{'Courier performance gap' if sm['rto_pct']>20 else 'Operations within normal range'}"),
+            rec=(f"Activate AI Calling for {sm['ndr_count']:,} NDRs + WhatsApp NDR for COD failures"
+                 if sm['ndr_count']>5 else "Monitor delivery rate and restrict COD in high-RTO pincodes"),
+            impact=f"~{int(sm['ndr_count']*0.38):,} NDRs recoverable via AI Calling"
+        )
+        if tbl:
+            text += f"\n\n**Product Performance:**\n{tbl}"
+        return text
 
-    if has("all seller", "compare seller", "seller list") \
-       or (hasw("seller", "sellers", "client", "clients") and hasw("all", "compare", "list", "rank")):
+    # ── All sellers ──────────────────────────────────────────────────────────
+    if has("all seller","compare seller","seller list","seller performance") \
+       or (hasw("seller","sellers","client","clients") and hasw("all","compare","list","rank")):
         sg = df.groupby("seller_name").agg(
-            total=("delivery_status","count"),
-            delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
-            rto=("delivery_status", lambda x: (x=="RTO").sum()),
+            orders=("delivery_status","count"),
+            delivered=("delivery_status",lambda x:(x=="Delivered").sum()),
+            rto=("delivery_status",lambda x:(x=="RTO").sum()),
         ).reset_index()
-        sg["dr"] = sg["delivered"]/sg["total"]*100; sg["rr"] = sg["rto"]/sg["total"]*100
-        sg = sg.sort_values("dr", ascending=False)
-        out = f"**{len(sg)} Sellers — Ranking:**\n\n"
-        for _, r in sg.iterrows():
-            e = "✅" if r["dr"]>=80 else ("⚠️" if r["dr"]>=65 else "🚨")
-            out += f"{e} **{r['seller_name']}** — {r['dr']:.1f}% del | {r['rr']:.1f}% RTO | {r['total']:,} shpts\n"
-        return out
+        sg["dr"]=sg["delivered"]/sg["orders"]*100; sg["rr"]=sg["rto"]/sg["orders"]*100
+        sg=sg.sort_values("dr",ascending=False)
+        tbl = ("| Seller | Orders | Delivery% | RTO% | Status |\n"
+               "|--------|--------|-----------|------|--------|\n")
+        for _,r in sg.iterrows():
+            flag = "✅" if r["dr"]>=80 else ("⚠️" if r["dr"]>=65 else "🚨")
+            tbl += f"| {r['seller_name'][:25]} | {int(r['orders']):,} | {r['dr']:.0f}% | {r['rr']:.0f}% | {flag} |\n"
+        best_s=sg.iloc[0]; worst_s=sg.iloc[-1]
+        return _obs_card(
+            obs=f"{len(sg)} sellers active. Best: **{best_s['seller_name']}** ({best_s['dr']:.0f}% del). "
+                f"Needs attention: **{worst_s['seller_name']}** ({worst_s['dr']:.0f}% del, {worst_s['rr']:.0f}% RTO)\n\n{tbl}",
+            cause=f"Delivery variance of {sg['dr'].std():.0f}% across sellers suggests inconsistent courier allocation or product mix",
+            rec=f"Prioritise {worst_s['seller_name']} for AI Calling + Shipping Rule Optimization",
+            impact=f"Closing the delivery gap to {best_s['dr']:.0f}% could add ~{int((best_s['dr']-worst_s['dr'])/100*worst_s['orders']):,} deliveries"
+        )
 
-    if has("top product", "top selling", "best selling", "popular") \
-       or (hasw("top", "best", "popular") and hasw("product", "sku", "selling")):
-        if "product_name" not in df.columns:
-            return "No product data available."
-        grp = df.groupby("product_name").agg(
-            total=("delivery_status","count"),
-            delivered=("delivery_status", lambda x: (x=="Delivered").sum()),
-        ).reset_index()
-        grp["dr"] = grp["delivered"]/grp["total"]*100
-        top5 = grp.sort_values("delivered", ascending=False).head(5)
-        out = "**Top Selling Products:**\n\n"
-        for _, r in top5.iterrows():
-            out += f"- **{r['product_name']}** — {r['delivered']:,} delivered ({r['dr']:.0f}%)\n"
-        return out
+    # ── Products ─────────────────────────────────────────────────────────────
+    if has("product","top product","top selling","sku","best selling","worst product","product performance") \
+       or hasw("products","sku","selling"):
+        tbl = _product_table(df, top_n=8)
+        if not tbl:
+            return "No product data available in the current dataset."
+        avg_rto = m["rto_pct"]
+        pg = df.groupby("product_name").agg(total=("delivery_status","count"),rto=("delivery_status",lambda x:(x=="RTO").sum())).reset_index()
+        pg["rr"]=pg["rto"]/pg["total"]*100
+        top_vol = pg.sort_values("total",ascending=False).iloc[0] if len(pg)>0 else None
+        worst_p = pg[pg["total"]>=3].sort_values("rr",ascending=False).iloc[0] if len(pg)>0 else None
+        top_line  = f"Top volume: **{top_vol['product_name']}** ({int(top_vol['total']):,} orders)." if top_vol is not None else ""
+        worst_line = f" Highest RTO: **{worst_p['product_name']}** ({worst_p['rr']:.0f}%)." if worst_p is not None else ""
+        return _obs_card(
+            obs=f"Analysed **{len(pg)} products** across {m['total']:,} shipments. {top_line}{worst_line}\n\n{tbl}",
+            cause=(f"**{worst_p['product_name']}** RTO at {worst_p['rr']:.0f}% vs fleet avg {avg_rto:.0f}% — likely COD + address quality"
+                   if worst_p is not None and worst_p['rr'] > avg_rto*1.3 else "Product mix within normal delivery range"),
+            rec=(f"Restrict COD for **{worst_p['product_name']}** in high-RTO states. Activate Order Confirmation Via AI."
+                 if worst_p is not None and worst_p['rr']>25 else "WhatsApp NDR for products with high NDR rate"),
+            impact=f"Reducing worst product RTO by 10% = ~{int(worst_p['rto']*0.10):,} fewer returns" if worst_p is not None else "Monitor monthly"
+        )
 
-    if prod:
-        p_df = df[df["product_name"] == prod]
-        pm   = compute_kpis(p_df)
-        return (f"**{prod}:**\n\n"
-                f"- Orders: **{pm['total']:,}** | Delivered: **{pm['delivered']:,}** ({pm['delivery_pct']:.1f}%)\n"
-                f"- RTO: **{pm['rto_count']:,}** ({pm['rto_pct']:.1f}%) | COD: **{pm['cod_pct']:.1f}%**\n"
-                f"- Avg Value: **₹{pm['avg_order_value']:,.0f}**")
-
-    if cour or has("courier", "3pl") or hasw("couriers", "carrier"):
+    # ── Couriers ──────────────────────────────────────────────────────────────
+    if cour or has("courier","3pl","carrier","allocation","routing") or hasw("couriers","carriers"):
+        tbl = _courier_table(cour_df, df)
         if cour:
-            r = cour_df[cour_df["courier"] == cour].iloc[0] if len(cour_df[cour_df["courier"]==cour])>0 else None
-            if r is not None:
-                return (f"**{cour}:** {r['total']:,} shpts | Delivery: **{r['delivery_rate']:.1f}%** | RTO: **{r['rto_rate']:.1f}%**")
-        out = f"**{len(cour_df)} Courier Partners:**\n\n"
-        for _, r in cour_df.sort_values("delivery_rate", ascending=False).iterrows():
-            e = "✅" if r["delivery_rate"]>=80 else ("⚠️" if r["delivery_rate"]>=70 else "🚨")
-            out += f"{e} **{r['courier']}** — {r['delivery_rate']:.1f}% del | {r['rto_rate']:.1f}% RTO\n"
-        return out
+            row = cour_df[cour_df["courier"]==cour].iloc[0] if len(cour_df[cour_df["courier"]==cour])>0 else None
+            if row is not None:
+                gap = (best_c["delivery_rate"] - row["delivery_rate"]) if best_c is not None else 0
+                return _obs_card(
+                    obs=f"**{cour}** handling {int(row['total']):,} shipments ({row['total']/max(len(df),1)*100:.0f}% of volume). "
+                        f"Delivery: **{row['delivery_rate']:.0f}%** | RTO: **{row['rto_rate']:.0f}%**",
+                    cause=(f"{gap:.0f}% below best courier {best_c['courier']}" if gap>5 and best_c else "Performance within expected range"),
+                    rec=(f"Reduce {cour} allocation by 30–40% in underperforming states. Route to **{best_c['courier']}**."
+                         if gap>5 and best_c else f"Maintain {cour} — performing well"),
+                    impact=f"~{int(row['total']*(gap/100)):,} additional deliveries if volume shifted to {best_c['courier'] if best_c else 'top courier'}"
+                )
+        return _obs_card(
+            obs=f"**{len(cour_df)} active couriers.** Best: {best_c['courier'] if best_c else 'N/A'} ({best_c['delivery_rate']:.0f}% del). "
+                f"Weakest: {worst_c['courier'] if worst_c else 'N/A'} ({worst_c['delivery_rate']:.0f}% del).\n\n{tbl}",
+            cause=f"Delivery spread of {cour_df['delivery_rate'].std():.0f}% across couriers — no pincode-level routing rules active",
+            rec=f"Route high-COD pincodes to {best_c['courier'] if best_c else 'top courier'}. Activate Multi-Courier Allocation.",
+            impact=f"~{int((cour_df['delivery_rate'].max()-cour_df['delivery_rate'].mean())/100 * len(df)):,} additional deliveries from rebalancing"
+        )
 
-    if stat or has("state", "location", "geographic") or hasw("states", "region"):
-        if stat:
-            r = state_df[state_df["state"]==stat]
-            if len(r)>0:
-                r=r.iloc[0]
-                return f"**{stat}:** {r['total']:,} shpts | RTO: **{r['rto_rate']:.1f}%** | Delivery: **{r['delivery_rate']:.1f}%**"
-        out = "**Top States by RTO:**\n\n"
-        for _, r in state_df.sort_values("rto_rate", ascending=False).head(6).iterrows():
-            e = "🚨" if r["rto_rate"]>30 else ("⚠️" if r["rto_rate"]>20 else "✅")
-            out += f"{e} **{r['state']}** — {r['rto_rate']:.1f}% RTO\n"
-        return out
+    # ── Pincode intelligence ──────────────────────────────────────────────────
+    if has("pincode","pincode intelligence","pin code","which pincode","problem pincode","ndr pincode","risk pincode","opportunity pincode"):
+        tables = _pincode_table(df)
+        parts  = []
+        if tables.get("opportunity"):
+            parts.append(f"**🏆 Top Opportunity Pincodes** (high volume + delivery):\n{tables['opportunity']}")
+        if tables.get("high_ndr"):
+            parts.append(f"**⚠️ High NDR Pincodes** (frequent failed attempts):\n{tables['high_ndr']}")
+        if tables.get("risk"):
+            parts.append(f"**🚨 Risk Pincodes** (high RTO + COD):\n{tables['risk']}")
+        if tables.get("mismatch"):
+            parts.append(f"**🔄 Courier Mismatch Pincodes** (switch courier):\n{tables['mismatch']}")
+        if not parts:
+            return "No pincode data available in the current dataset."
+        body = "\n\n".join(parts)
+        risk_pin_count = len(df.groupby("pincode").filter(lambda x: x["delivery_status"].eq("RTO").mean()>0.4)) if "pincode" in df.columns else 0
+        return _obs_card(
+            obs=f"Pincode analysis across {df['pincode'].nunique() if 'pincode' in df.columns else 0} pincodes:\n\n{body}",
+            cause="COD accepted uniformly across all pincodes without historical RTO data gating",
+            rec="Blacklist risk pincodes for COD. Route opportunity pincodes to best courier. Activate WhatsApp NDR for high-NDR pincodes.",
+            impact=f"Blacklisting top risk pincodes for COD can prevent ~{int(m['rto_count']*0.15):,} RTOs/month"
+        )
 
-    if has("rto", "high rto", "reduce rto") or (hasw("rto", "return") and hasw("why", "high", "cause", "fix")):
-        return (f"**RTO at {m['rto_pct']:.1f}%** — 3 main causes:\n\n"
-                f"- {worst_c['courier'] if worst_c else 'Weakest courier'} delivering only {worst_c['delivery_rate']:.1f}%\n"
-                f"- {worst_st['state'] if worst_st else 'High-RTO state'} at {worst_st['rto_rate']:.1f}% RTO\n"
-                f"- COD {m['cod_pct']:.1f}% share with {cod_rto:.1f}% COD-RTO rate\n\n"
-                f"**Fix:** Order Confirmation → WhatsApp NDR → AI Calling")
+    # ── VAS Opportunity ───────────────────────────────────────────────────────
+    if has("vas","calling opportunity","whatsapp opportunity","ndr opportunity","recoverable","recovery opportunity"):
+        ndr_total = m["ndr_count"]
+        cod_ndr   = len(df[(df["payment_type"]=="COD")&(df["ndr_status"]=="Raised")]) \
+                    if "payment_type" in df.columns and "ndr_status" in df.columns else int(ndr_total*0.8)
+        call_rec  = int(ndr_total*0.38)
+        wa_rec    = int(cod_ndr*0.15)
+        total_rec = call_rec + wa_rec
+        call_cost = int(ndr_total * 8)   # ₹4/min × 2 min
+        wa_cost   = int(cod_ndr * 1)     # ₹0.50 × 2 msgs
+        return _obs_card(
+            obs=(f"**NDR Volume:** {ndr_total:,} active NDRs ({m['ndr_pct']:.1f}% of shipments)\n"
+                 f"- COD NDRs: **{cod_ndr:,}** — highest recovery priority\n"
+                 f"- Fleet avg order value: ₹{m['avg_order_value']:,.0f}\n\n"
+                 f"**AI Calling Opportunity:** {ndr_total:,} NDRs × 38% = **{call_rec:,} recoverable shipments** (cost: ₹{call_cost:,})\n"
+                 f"**WhatsApp NDR Opportunity:** {cod_ndr:,} COD NDRs × 15% = **{wa_rec:,} recoverable** (cost: ₹{wa_cost:,})\n"
+                 f"**Total Recoverable: {total_rec:,} shipments** across both channels"),
+            cause=f"{ndr_total:,} shipments in limbo — no automated outreach active. Each day of delay increases RTO risk by ~5%",
+            rec=f"Launch AI Calling for all {ndr_total:,} NDRs TODAY. Run WhatsApp NDR in parallel for {cod_ndr:,} COD cases.",
+            impact=f"**{total_rec:,} shipments recoverable** · AI Calling cost ₹{call_cost:,} · WA cost ₹{wa_cost:,}"
+        )
 
-    if has("health", "score", "overall", "summary") or hasw("health", "score", "overall"):
-        risk = "Low Risk" if hs>=80 else ("Medium Risk" if hs>=65 else "High Risk")
-        return (f"**Health: {hs:.0f}/100 — {risk}**\n\n"
-                f"- Delivery: **{m['delivery_pct']:.1f}%** | RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}**\n"
-                f"- Shipments: **{m['total']:,}** | COD: **{m['cod_pct']:.1f}%**")
+    # ── NDR ───────────────────────────────────────────────────────────────────
+    if has("ndr","non delivery","undelivered","pending delivery") or hasw("ndr","undelivered"):
+        rec = int(m["ndr_count"]*0.38)
+        return _obs_card(
+            obs=f"**{m['ndr_count']:,} active NDRs** ({m['ndr_pct']:.1f}% of shipments). "
+                f"AI Calling can recover **{rec:,}** of these.",
+            cause="No automated re-engagement active. NDRs aging past 48h convert to RTO at high rate.",
+            rec=f"Activate AI Calling for all {m['ndr_count']:,} NDRs immediately. Use WhatsApp NDR for COD failures.",
+            impact=f"{rec:,} shipments recovered · ₹{int(rec*8):,} call cost"
+        )
 
-    if has("cod", "prepaid", "payment") or hasw("cod", "prepaid", "payment"):
-        return (f"**COD vs Prepaid:**\n\n"
-                f"- COD: **{m['cod_pct']:.1f}%** | COD-RTO: **{cod_rto:.1f}%**\n"
-                f"- Prepaid: **{100-m['cod_pct']:.1f}%** | Prepaid-RTO: **{prep_rto:.1f}%**\n"
-                f"- Premium risk: **+{cod_rto-prep_rto:.1f}%** extra RTO for COD")
+    # ── RTO ───────────────────────────────────────────────────────────────────
+    if has("rto","return","high rto","reduce rto") or (hasw("rto","return") and hasw("why","high","cause","fix")):
+        ws_str = f"**{worst_st['state']}** ({worst_st['rto_rate']:.0f}% RTO)" if worst_st is not None else "multiple states"
+        wc_str = f"**{worst_c['courier']}** ({worst_c['delivery_rate']:.0f}% delivery)" if worst_c is not None else "underperforming couriers"
+        return _obs_card(
+            obs=f"RTO at **{m['rto_pct']:.1f}%** ({m['rto_count']:,} shipments). "
+                f"COD share: **{m['cod_pct']:.0f}%** with {cod_rto:.0f}% COD-RTO rate.",
+            cause=f"Three drivers: (1) {ws_str} geographic cluster, "
+                  f"(2) {wc_str} courier underperformance, "
+                  f"(3) {m['cod_pct']:.0f}% COD with no pre-dispatch confirmation",
+            rec="1. Order Confirmation Via AI (pre-dispatch filter)  2. Shipping Rule Optimization (state/pincode COD block)  3. Pincode Optimization (blacklist >50% RTO pins)",
+            impact=f"~{int(m['rto_count']*0.20):,} RTOs preventable — Order Confirmation alone saves ~{int(m['rto_count']*0.12):,}/month"
+        )
 
-    return (f"**{m['total']:,} shipments** · Delivery **{m['delivery_pct']:.1f}%** · RTO **{m['rto_pct']:.1f}%**\n\n"
-            f"Try: *Simulate AI Calling · Compare sellers · Top products · Why is RTO high?*")
+    # ── Health ────────────────────────────────────────────────────────────────
+    if has("health","score","overall","summary","how am i") or hasw("health","score","overall"):
+        risk = "Low Risk ✅" if hs>=80 else ("Medium Risk ⚠️" if hs>=65 else "High Risk 🚨")
+        att  = m.get("attempted_total", m["total"])
+        return _obs_card(
+            obs=f"Health Score: **{hs:.0f}/100** — {risk}. "
+                f"Delivery: **{m['delivery_pct']:.1f}%** ({m['delivered']:,} of {att:,} attempted) | "
+                f"RTO: **{m['rto_pct']:.1f}%** | NDR: **{m['ndr_count']:,}** | COD: **{m['cod_pct']:.0f}%**",
+            cause=("High RTO + High COD driving score down" if m["rto_pct"]>20 and m["cod_pct"]>65
+                   else "NDR backlog reducing effective delivery rate" if m["ndr_pct"]>15
+                   else "Courier concentration risk" if len(cour_df)<=1 else "Performance within range"),
+            rec=("AI Calling + Order Confirmation Via AI to recover NDRs and block fake orders"
+                 if m["ndr_pct"]>15 else "Focus on courier rebalancing and pincode optimization"),
+            impact=f"Resolving NDRs and COD risk can improve Health Score by **+10–15 points**"
+        )
+
+    # ── COD ───────────────────────────────────────────────────────────────────
+    if has("cod","prepaid","payment","cash on delivery") or hasw("cod","prepaid","payment"):
+        prep_rto = len(prep_df[prep_df["delivery_status"]=="RTO"])/max(len(prep_df),1)*100 if len(prep_df)>0 else 0
+        return _obs_card(
+            obs=f"COD share: **{m['cod_pct']:.0f}%** ({m['cod_count']:,} orders). "
+                f"COD-RTO: **{cod_rto:.0f}%** vs Prepaid-RTO: **{prep_rto:.0f}%** — gap of **+{cod_rto-prep_rto:.0f}%**",
+            cause="COD buyers have lower delivery intent. No pre-dispatch confirmation or WhatsApp re-engagement active.",
+            rec="Activate WhatsApp NDR for COD failures + Order Confirmation Via AI before dispatch. Offer prepaid discount.",
+            impact=f"Reducing COD-RTO by 8% = ~{int(m['cod_count']*0.08):,} fewer returns/month"
+        )
+
+    # ── Default ───────────────────────────────────────────────────────────────
+    att = m.get("attempted_total", m["total"])
+    text = (f"**{m['total']:,} shipments** analysed · {len(all_sellers)} sellers · {len(cour_df)} couriers\n\n"
+            f"Delivery: **{m['delivery_pct']:.1f}%** ({m['delivered']:,}/{att:,} attempted) · "
+            f"RTO: **{m['rto_pct']:.1f}%** · NDR: **{m['ndr_count']:,}** · COD: **{m['cod_pct']:.0f}%**\n\n"
+            f"**Ask me about:**\n"
+            f"- *Sellers* — 'Compare all sellers' or 'Tell me about [seller name]'\n"
+            f"- *Products* — 'Show product performance' or 'Which product has highest RTO?'\n"
+            f"- *Couriers* — 'Show courier allocation' or 'Tell me about Delhivery'\n"
+            f"- *Pincodes* — 'Pincode intelligence' or 'Show risk pincodes'\n"
+            f"- *VAS* — 'VAS opportunity' or 'Simulate AI Calling'\n"
+            f"- *RTO* — 'Why is RTO high?' or 'How to reduce RTO?'")
+    return text
 
 
 @st.dialog("🤖 JaGau AI — Your AI KAM & Operations Expert", width="large")
 def chat_dialog(df):
-    """Inline chat popup — no page navigation needed."""
-    m   = compute_kpis(df)
+    m        = compute_kpis(df)
     m["vas_adoption_score"] = compute_vas_adoption_score(df)
-    hs  = compute_health_score(m)
+    hs       = compute_health_score(m)
     cour_df  = compute_courier_perf(df)
     state_df = compute_state_perf(df)
     all_sellers = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
 
     rc = "#34D399" if hs>=80 else ("#FBBF24" if hs>=65 else "#F87171")
+    att = m.get("attempted_total", m["total"])
     st.markdown(f"""
-    <div style="display:flex;gap:20px;background:#111827;border-radius:10px;
+    <div style="display:flex;gap:18px;background:#111827;border-radius:10px;
                 padding:12px 16px;margin-bottom:14px;flex-wrap:wrap;">
       <div><b style="color:{rc};">{hs:.0f}/100</b>
-           <div style="color:#6B7280;font-size:0.7rem;">Health</div></div>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">Health</div></div>
       <div><b style="color:#34D399;">{m['delivery_pct']:.1f}%</b>
-           <div style="color:#6B7280;font-size:0.7rem;">Delivery</div></div>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">Delivery</div></div>
       <div><b style="color:#F87171;">{m['rto_pct']:.1f}%</b>
-           <div style="color:#6B7280;font-size:0.7rem;">RTO</div></div>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">RTO</div></div>
       <div><b style="color:#FBBF24;">{m['ndr_count']:,}</b>
-           <div style="color:#6B7280;font-size:0.7rem;">NDR</div></div>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">NDR</div></div>
       <div><b style="color:#60A5FA;">{m['total']:,}</b>
-           <div style="color:#6B7280;font-size:0.7rem;">Shipments</div></div>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">Shipments</div></div>
+      <div><b style="color:#9CA3AF;font-size:0.72rem;">{m['delivered']:,}/{att:,} attempted</b>
+           <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;">Cohort</div></div>
     </div>""", unsafe_allow_html=True)
 
-    quick = ["Simulate AI Calling", "Simulate WhatsApp NDR", "Simulate Order Confirmation",
-             "Compare all sellers", "Top selling products", "Why is RTO high?",
-             "Show courier performance", "My health score"]
-    c1, c2, c3, c4 = st.columns(4)
+    quick = ["Product performance","Courier allocation","Pincode intelligence",
+             "VAS opportunity","Compare sellers","Why is RTO high?","How to reduce NDR?"]
+    qc = st.columns(4)
     sel_q = None
     for i, qq in enumerate(quick):
-        if [c1, c2, c3, c4][i % 4].button(qq, key=f"dchip_{i}", use_container_width=True):
-            sel_q = qq
+        if qc[i%4].button(qq, key=f"dq_{i}", use_container_width=True): sel_q = qq
 
     st.markdown("---")
 
@@ -231,118 +405,72 @@ def chat_dialog(df):
         st.session_state["dialog_chat"] = []
 
     for msg in st.session_state["dialog_chat"]:
-        if msg["role"] == "user":
+        if msg["role"]=="user":
             st.markdown(f'<div class="chat-bubble-user">{msg["content"]}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="chat-bubble-bot">{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(msg["content"])
 
-    user_input = st.chat_input("Ask about sellers, products, couriers, simulations…")
+    user_input = st.chat_input("Ask about products, couriers, pincodes, VAS, RTO…")
     if sel_q or user_input:
         prompt = sel_q or user_input
-        st.session_state["dialog_chat"].append({"role": "user",   "content": prompt})
+        st.session_state["dialog_chat"].append({"role":"user","content":prompt})
         answer = _quick_reply(prompt, df, m, hs, cour_df, state_df, all_sellers)
-        st.session_state["dialog_chat"].append({"role": "assistant", "content": answer})
+        st.session_state["dialog_chat"].append({"role":"assistant","content":answer})
         st.rerun()
 
-    if st.session_state["dialog_chat"]:
-        if st.button("🗑 Clear", key="dlg_clear"):
-            st.session_state["dialog_chat"] = []
-            st.rerun()
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🗑 Clear", key="dlg_clear"): st.session_state["dialog_chat"]=[]; st.rerun()
+    with col2:
+        st.markdown(
+            '<a href="/7_GDI_Consultant" target="_self" style="color:#818CF8;font-size:0.8rem;">'
+            '→ Open full JaGau AI Consultant for deeper analysis</a>',
+            unsafe_allow_html=True)
 
 
 def render_chat_button(df):
-    """Floating Joker icon in the bottom-right corner — opens GDI Agent dialog.
-    Uses st.markdown to inject directly into the page (not an iframe)."""
-
-    # The actual Streamlit button (visible but styled as floating joker via CSS)
-    if st.button("🤖 Ask JaGau AI", key="joker_trigger_btn", type="primary"):
-        chat_dialog(df)
-
-    # Inject CSS + JS to transform the button into a floating joker icon
+    """Reliable floating JaGau AI button — pure CSS, no JS hacks."""
+    # Inject the floating button CSS + HTML
     st.markdown("""
     <style>
-    /* Target the joker button specifically and make it float */
-    div[data-testid="stBottom"] ~ div button[kind="primary"]:last-of-type,
-    button[kind="primary"] {
-        /* don't touch other primary buttons */
+    .jagau-float {
+        position: fixed;
+        bottom: 26px;
+        right: 26px;
+        z-index: 999999;
+        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+        color: #FFFFFF;
+        border: 2px solid rgba(255,255,255,0.2);
+        border-radius: 50px;
+        padding: 12px 20px;
+        font-size: 0.88rem;
+        font-weight: 700;
+        font-family: 'Outfit', system-ui, sans-serif;
+        box-shadow: 0 4px 24px rgba(79,70,229,0.5);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-decoration: none;
+        transition: all 0.25s ease;
+        animation: jagau-pulse 3s ease-in-out infinite;
+    }
+    .jagau-float:hover {
+        transform: translateY(-3px) scale(1.04);
+        box-shadow: 0 8px 32px rgba(79,70,229,0.65);
+        color: #FFFFFF;
+    }
+    @keyframes jagau-pulse {
+        0%, 100% { box-shadow: 0 4px 24px rgba(79,70,229,0.5); }
+        50%       { box-shadow: 0 4px 32px rgba(79,70,229,0.7); }
     }
     </style>
-
-    <!-- Floating Joker Icon (pure HTML, injected into page DOM) -->
-    <div id="gdi-joker-float" style="
-        position:fixed; bottom:28px; right:28px; z-index:999999;
-        width:68px; height:68px; border-radius:50%;
-        background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 50%,#6D28D9 100%);
-        border:3px solid rgba(255,255,255,0.18);
-        box-shadow:0 6px 28px rgba(124,58,237,0.5),0 0 0 4px rgba(124,58,237,0.12);
-        cursor:pointer; display:flex; align-items:center; justify-content:center;
-        transition:all 0.3s cubic-bezier(0.4,0,0.2,1);
-        animation:gdi-jpulse 2.5s ease-in-out infinite;
-    ">
-        <svg viewBox="0 0 100 100" width="42" height="42" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="50" cy="50" r="42" fill="#7C3AED" stroke="#A78BFA" stroke-width="2"/>
-          <path d="M15 38 Q25 5 50 20 Q75 5 85 38" fill="#4F46E5" stroke="#818CF8" stroke-width="1.5"/>
-          <circle cx="25" cy="12" r="5" fill="#FBBF24"/>
-          <circle cx="75" cy="12" r="5" fill="#F87171"/>
-          <circle cx="50" cy="5" r="5" fill="#34D399"/>
-          <ellipse cx="36" cy="48" rx="5" ry="6" fill="white"/>
-          <ellipse cx="64" cy="48" rx="5" ry="6" fill="white"/>
-          <circle cx="37" cy="47" r="2.5" fill="#1F2937"/>
-          <circle cx="65" cy="47" r="2.5" fill="#1F2937"/>
-          <circle cx="38" cy="46" r="1" fill="white"/>
-          <circle cx="66" cy="46" r="1" fill="white"/>
-          <ellipse cx="28" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
-          <ellipse cx="72" cy="58" rx="6" ry="3.5" fill="rgba(248,113,113,0.35)"/>
-          <path d="M32 62 Q50 82 68 62" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
-          <path d="M36 64 Q50 78 64 64" fill="#FBBF24" opacity="0.3"/>
-        </svg>
-    </div>
-
-    <div id="gdi-joker-tip" style="
-        position:fixed; bottom:102px; right:28px; z-index:999998;
-        background:#1F2937; color:#E0E7FF; padding:8px 14px; border-radius:10px;
-        font-size:0.8rem; font-weight:600; font-family:'Outfit',sans-serif;
-        box-shadow:0 4px 14px rgba(0,0,0,0.4); border:1px solid #374151;
-        white-space:nowrap; opacity:0; transition:opacity 0.3s;
-        pointer-events:none;
-    ">🤖 Ask JaGau AI</div>
-
-    <style>
-    @keyframes gdi-jpulse {
-        0%,100% { box-shadow:0 6px 28px rgba(124,58,237,0.5),0 0 0 4px rgba(124,58,237,0.12); }
-        50%     { box-shadow:0 6px 32px rgba(124,58,237,0.65),0 0 0 8px rgba(124,58,237,0.08); }
-    }
-    #gdi-joker-float:hover {
-        transform:scale(1.12) rotate(5deg);
-        box-shadow:0 8px 36px rgba(124,58,237,0.65),0 0 0 6px rgba(124,58,237,0.2) !important;
-    }
-    #gdi-joker-float:hover ~ #gdi-joker-tip,
-    #gdi-joker-float:hover + #gdi-joker-tip { opacity:1; }
-    #gdi-joker-float:active { transform:scale(0.95); }
-    </style>
-
-    <script>
-    // Wire the floating joker to click the hidden Streamlit button
-    (function() {
-        const joker = document.getElementById('gdi-joker-float');
-        if (!joker) return;
-
-        // Hide the original Streamlit button
-        const allBtns = window.document.querySelectorAll('button');
-        for (const btn of allBtns) {
-            const txt = btn.innerText || btn.textContent || '';
-            if (txt.includes('Ask JaGau AI') && txt.includes('🤖')) {
-                const wrapper = btn.closest('div[data-testid="stButton"]')
-                              || btn.closest('.stButton')
-                              || btn.parentElement;
-                if (wrapper) {
-                    wrapper.style.cssText = 'height:0;overflow:hidden;opacity:0;position:absolute;pointer-events:none;';
-                }
-                // Click the hidden button when joker is clicked
-                joker.onclick = function() { btn.click(); };
-                break;
-            }
-        }
-    })();
-    </script>
     """, unsafe_allow_html=True)
+
+    # Use Streamlit button — reliable click → dialog
+    # Place at bottom of page, styled to blend with fixed position
+    col = st.columns([6, 1])[1]
+    with col:
+        if st.button("🤖 JaGau", use_container_width=True,
+                     key="jagau_float_btn", type="primary"):
+            chat_dialog(df)
