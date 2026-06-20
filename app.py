@@ -8,8 +8,8 @@ st.set_page_config(
 )
 
 pages = [
-    st.Page("pages/0_GDI_Dashboard.py",    title="GDI Dashboard",  icon="⚡", default=True),
-    st.Page("pages/7_AI_Chat_Assistant.py", title="Ask GDI Agent",  icon="🤖"),
+    st.Page("pages/0_GDI_Dashboard.py",   title="GDI Dashboard",    icon="⚡", default=True),
+    st.Page("pages/7_GDI_Consultant.py",  title="GDI Consultant",   icon="🤖"),
 ]
 pg = st.navigation(pages)
 pg.run()

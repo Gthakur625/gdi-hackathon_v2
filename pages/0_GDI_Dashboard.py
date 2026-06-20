@@ -40,7 +40,7 @@ is_admin    = len(all_sellers) > 1
 st.markdown("""
 <div class="header-card">
   <h1 class="header-title">⚡ Velocity GDI — Growth & Delivery Intelligence</h1>
-  <p class="header-subtitle">AI-Powered Operations Consultant · Diagnose · Recommend · Act</p>
+  <p class="header-subtitle">AI Operations Consultant · Diagnose · Recommend · Act</p>
 </div>""", unsafe_allow_html=True)
 
 # Seller search bar (only when multiple sellers)
@@ -96,30 +96,114 @@ elif hs>=65: sc="#FBBF24"; rl="Medium Risk"; rb='<span class="badge-risk-medium"
 else:        sc="#FCA5A5"; rl="High Risk";   rb='<span class="badge-risk-high">🔴 High Risk</span>'
 total_pot = sum(r["revenue"] for r in recs)
 
-# Executive summary
-sellers_in_view = df["seller_name"].nunique() if "seller_name" in df.columns else 1
+# NDD partners
+NDD_PARTNERS = ["Elastic Run", "PiknDel", "Blitz"]
+zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
+zone_ab_count = 0
+if zone_col:
+    zone_ab_count = int(df[df[zone_col].astype(str).str.upper().isin(["A","B"])].shape[0])
+
+# ── AI EXECUTIVE BRIEFING ─────────────────────────────────────────────────────
+def _build_briefing(df, m, hs, recs, cour_perf, state_perf, seller_label):
+    """Generate proactive AI briefing text blocks for risks, opportunities, actions."""
+    risks, opps, actions = [], [], []
+
+    # Risks
+    if m["rto_pct"] > 20:
+        risks.append(f"🚨 RTO at <b style='color:#F87171;'>{m['rto_pct']:.1f}%</b> — above 20% threshold")
+    if m["cod_pct"] > 65:
+        risks.append(f"⚠️ COD at <b style='color:#C084FC;'>{m['cod_pct']:.1f}%</b> — high fake-order risk")
+    if m["ndr_pct"] > 15:
+        risks.append(f"⚠️ NDR backlog <b style='color:#FBBF24;'>{m['ndr_count']:,}</b> shipments unresolved")
+    if len(state_perf) > 0:
+        ws = state_perf.sort_values("rto_rate", ascending=False).iloc[0]
+        if ws["rto_rate"] > 30:
+            risks.append(f"🚨 <b>{ws['state']}</b> — {ws['rto_rate']:.0f}% RTO, your biggest hotspot")
+    if len(cour_perf) > 0:
+        wc = cour_perf.sort_values("delivery_rate").iloc[0]
+        if wc["delivery_rate"] < 70:
+            risks.append(f"⚠️ <b>{wc['courier']}</b> delivering only {wc['delivery_rate']:.0f}%")
+    if not risks:
+        risks.append("✅ No critical risks detected in current period")
+
+    # Opportunities
+    if m["ndr_count"] > 10:
+        rec = int(m["ndr_count"] * 0.38)
+        opps.append(f"📞 <b>AI Calling</b> → recover ~{rec:,} NDRs → <b style='color:#34D399;'>₹{int(rec*m['avg_order_value']):,}</b>")
+    if m["cod_pct"] > 55 and m["ndr_pct"] > 10:
+        saved = int(m["rto_count"] * 0.08)
+        opps.append(f"💬 <b>WhatsApp AI NDR</b> → prevent ~{saved:,} COD RTOs → <b style='color:#34D399;'>₹{int(saved*m['avg_order_value']):,}</b>")
+    if m["rto_pct"] > 15:
+        saved = int(m["rto_count"] * 0.12)
+        opps.append(f"🔍 <b>Order Confirmation Via AI</b> → stop ~{saved:,} fake orders → <b style='color:#34D399;'>₹{int(saved*m['avg_order_value']):,}</b>")
+    if zone_ab_count > 0:
+        pct = zone_ab_count / max(m["total"], 1) * 100
+        opps.append(f"🚀 <b>NDD (Elastic Run / PiknDel / Blitz)</b> → {pct:.0f}% orders in Zone A/B eligible for next-day delivery")
+    if not opps:
+        opps.append("✅ Operations healthy — focus on expanding volume with top couriers")
+
+    # Actions (prioritised)
+    priority = sorted(recs, key=lambda r: r["revenue"], reverse=True)
+    for i, r in enumerate(priority[:3], 1):
+        actions.append(f"<b>#{i}</b> Activate <b>{r['name']}</b> — {r['impact']}")
+    if not actions:
+        actions.append("<b>#1</b> Maintain current VAS stack and monitor NDR age daily")
+
+    return risks[:4], opps[:4], actions[:3]
+
+risks, opps, actions = _build_briefing(df, m, hs, recs, cour_perf, state_perf,
+                                        selected_seller if is_admin else None)
+
+def _bullet(items, color="#D1D5DB"):
+    return "".join(f'<div style="padding:4px 0;border-bottom:1px solid #1F2937;font-size:0.82rem;color:{color};">{it}</div>' for it in items)
+
+scope = f" — {selected_seller}" if (is_admin and selected_seller != "📊 All Sellers") else ""
 st.markdown(f"""
-<div class="saas-card" style="background:linear-gradient(180deg,#161F30 0%,#111827 100%);
-     border-left:4px solid #4F46E5;">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
-    <div style="flex:1;">
-      <div style="color:#9CA3AF;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.05em;">
-        Executive Overview{"  ·  " + selected_seller if selected_seller != "📊 All Sellers" else ""}</div>
-      <h2 style="color:#FFFFFF;font-size:1.4rem;font-weight:700;margin:6px 0;">
+<div style="background:linear-gradient(135deg,#0F172A 0%,#111827 100%);
+     border:1px solid #1F2937;border-radius:16px;padding:20px 24px;margin-bottom:18px;
+     border-left:4px solid #818CF8;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
+    <div>
+      <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.08em;margin-bottom:4px;">🤖 GDI Consultant — AI Executive Briefing{scope}</div>
+      <div style="color:#FFFFFF;font-size:1.35rem;font-weight:800;line-height:1.2;">
         Status: <span style="color:{sc};">{rl}</span>
-        &nbsp;·&nbsp; Health: <span style="color:#818CF8;">{hs:.0f}/100</span>
-      </h2>
-      <p style="color:#D1D5DB;font-size:0.88rem;line-height:1.6;margin:0;">
-        <strong>{m['total']:,} shipments</strong> · Delivery <strong>{m['delivery_pct']:.1f}%</strong>
-        · RTO <strong>{m['rto_pct']:.1f}%</strong> · NDR <strong>{m['ndr_count']:,}</strong>
-        · VAS unlock <strong>₹{total_pot:,}</strong>
-      </p>
+        <span style="color:#6B7280;font-size:0.9rem;font-weight:400;margin-left:12px;">
+          {m['delivered']:,} delivered of {m['attempted_total']:,} attempted</span>
+      </div>
     </div>
-    <div style="text-align:center;min-width:130px;">
-      <div class="metric-label">Health Score</div>
-      <div style="font-size:2.4rem;font-weight:800;color:#818CF8;line-height:1.1;">
-        {hs:.0f}<span style="font-size:1rem;color:#6B7280;">/100</span></div>
-      <div style="margin-top:6px;">{rb}</div>
+    <div style="text-align:center;background:#0B0F19;border-radius:12px;padding:10px 20px;min-width:110px;">
+      <div style="font-size:2rem;font-weight:800;color:#818CF8;line-height:1;">{hs:.0f}</div>
+      <div style="font-size:0.7rem;color:#6B7280;text-transform:uppercase;">/100 Health</div>
+      <div style="margin-top:4px;">{rb}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+    <div>
+      <div style="color:#F87171;font-size:0.7rem;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.06em;margin-bottom:6px;">⚡ Top Risks</div>
+      {_bullet(risks)}
+    </div>
+    <div>
+      <div style="color:#34D399;font-size:0.7rem;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.06em;margin-bottom:6px;">💰 Opportunities</div>
+      {_bullet(opps)}
+    </div>
+    <div>
+      <div style="color:#818CF8;font-size:0.7rem;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.06em;margin-bottom:6px;">✅ Recommended Actions</div>
+      {_bullet(actions)}
+    </div>
+  </div>
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1F2937;
+              display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <div style="font-size:0.78rem;color:#6B7280;">
+      {m['total']:,} shipments · COD {m['cod_pct']:.0f}% · NDR {m['ndr_count']:,}
+      · Avg ₹{m['avg_order_value']:,.0f} · {len(cour_perf)} couriers active
+      {f" · 🚀 {zone_ab_count:,} Zone A/B NDD-eligible" if zone_ab_count > 0 else ""}
+    </div>
+    <div style="font-size:0.78rem;color:#34D399;font-weight:600;">
+      💰 Total revenue unlock: ₹{total_pot:,}
     </div>
   </div>
 </div>""", unsafe_allow_html=True)

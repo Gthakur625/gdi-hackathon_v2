@@ -202,7 +202,7 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             f"Try: *Simulate AI Calling · Compare sellers · Top products · Why is RTO high?*")
 
 
-@st.dialog("🃏 GDI Agent — Ask Me Anything", width="large")
+@st.dialog("🤖 GDI Consultant — AI Briefing", width="large")
 def chat_dialog(df):
     """Inline chat popup — no page navigation needed."""
     m   = compute_kpis(df)

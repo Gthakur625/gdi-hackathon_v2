@@ -409,6 +409,42 @@ def reply(q):
         return text, ["Simulate WhatsApp NDR","Simulate Order Confirmation","Which state has worst COD RTO?"], None, None
 
     # ── NDR ──────────────────────────────────────────────────────────────────
+    # ── NDD — Next Day Delivery ───────────────────────────────────────────────
+    if has("ndd","next day","next-day","same day","express delivery","fast delivery") \
+       or (hasw("ndd","nextday","express","fast","quick") and hasw("delivery","courier","ship","partner")):
+        zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
+        zone_ab_df = df[df[zone_col].astype(str).str.upper().isin(["A","B"])] if zone_col else pd.DataFrame()
+        zone_ab_pct = len(zone_ab_df)/max(len(df),1)*100
+
+        if zone_col and len(zone_ab_df) > 0:
+            # Zone A/B courier breakdown
+            zc = zone_ab_df.groupby("courier").agg(
+                total=("delivery_status","count"),
+                delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
+            ).reset_index()
+            zc["dr"] = zc["delivered"]/zc["total"]*100
+            ndd_already = [r["courier"] for _,r in zc.iterrows()
+                           if r["courier"] in ["Elastic Run","PiknDel","Blitz"]]
+            text = (f"**NDD (Next Day Delivery) Opportunity:**\n\n"
+                    f"- **{zone_ab_pct:.0f}%** of your shipments ({len(zone_ab_df):,}) are in Zone A or B\n"
+                    f"- NDD Partners: **Elastic Run, PiknDel, Blitz**\n"
+                    f"- NDD shipments have 15–20% lower NDR rates (customer expects delivery next day)\n\n")
+            if ndd_already:
+                text += f"You already use: **{', '.join(ndd_already)}** for some Zone A/B orders.\n\n"
+            text += (f"**Recommendation:**\n"
+                     f"- Route all Zone A orders to **Elastic Run** (highest NDD network density)\n"
+                     f"- Route Zone B orders to **PiknDel** or **Blitz** based on pincode serviceability\n"
+                     f"- Expected benefit: fewer NDRs, higher NPS, faster cash collection on COD")
+        else:
+            text = (f"**NDD Partners for Velocity Shipping:**\n\n"
+                    f"- **Elastic Run** — strongest Zone A/B network, ideal for metro deliveries\n"
+                    f"- **PiknDel** — good Zone B coverage, competitive NDD pricing\n"
+                    f"- **Blitz** — tech-first NDD player, strong in Tier-1 cities\n\n"
+                    f"Enable zone column in your MIS to get NDD eligibility analysis.")
+        return text, ["Which Zone A/B states have high RTO?","Simulate AI Calling",
+                      "Best courier for NDD"], None, None
+
+    # ── NDR ───────────────────────────────────────────────────────────────────
     if has("ndr","non delivery","undelivered","not delivered","failed delivery","ndr queue","ndr analysis") \
        or hasw("ndr","undelivered","pending"):
         stale=0
@@ -539,8 +575,8 @@ def ask(q):
 
 st.markdown("""
 <div class="header-card">
-  <h1 class="header-title">🤖 Ask GDI Agent</h1>
-  <p class="header-subtitle">Velocity Shipping's AI Consultant — simulates VAS impact, analyses every seller, product & courier from your live data.</p>
+  <h1 class="header-title">🤖 GDI Consultant</h1>
+  <p class="header-subtitle">Your AI Delivery Consultant — proactive insights on every seller, product & courier · VAS simulations · NDD recommendations</p>
 </div>""", unsafe_allow_html=True)
 
 # API key
@@ -589,16 +625,57 @@ sel_q = None
 for i, qq in enumerate(quick):
     if qcols[i%4].button(qq, key=f"qb_{i}", use_container_width=True): sel_q = qq
 
-# Init chat
+# Init chat — proactive briefing every session
 if "gdi_chat" not in st.session_state:
-    ws  = worst_st["state"] if worst_st is not None else "N/A"
-    wsr = f"{worst_st['rto_rate']:.0f}%" if worst_st is not None else "N/A"
-    opener = (f"I've analysed **{m['total']:,} shipments** · **{len(all_sellers)} sellers** · **{len(cour_df)} couriers**.\n\n"
-              f"Health: **{hs:.0f}/100** · Delivery: **{m['delivery_pct']:.1f}%** · RTO: **{m['rto_pct']:.1f}%** · NDR: **{m['ndr_count']:,}**\n\n"
-              f"Biggest RTO hotspot: **{ws}** at {wsr}. AI Calling can recover **~{int(m['ndr_count']*0.38):,} NDRs**.\n\n"
-              f"Click a button above or type any question about your operations 👇")
+    ws   = worst_st["state"]           if worst_st is not None else "N/A"
+    wsr  = f"{worst_st['rto_rate']:.0f}%" if worst_st is not None else "N/A"
+    bc   = best_c["courier"]           if best_c  is not None else "N/A"
+    bdr  = f"{best_c['delivery_rate']:.0f}%" if best_c is not None else "N/A"
+    wc   = worst_c["courier"]          if worst_c is not None else "N/A"
+    wdr  = f"{worst_c['delivery_rate']:.0f}%" if worst_c is not None else "N/A"
+    att  = m.get("attempted_total", m["total"])
+    pend = m.get("pending_count", 0)
+
+    # build prioritised action list
+    actions = []
+    if m["ndr_pct"] > 15:
+        rec = int(m["ndr_count"]*0.38)
+        actions.append(f"**AI Calling** → recover ~{rec:,} NDRs → ₹{int(rec*m['avg_order_value']):,}")
+    if m["cod_pct"] > 55 and m["ndr_pct"] > 10:
+        sv = int(m["rto_count"]*0.08)
+        actions.append(f"**WhatsApp AI NDR** → prevent ~{sv:,} COD RTOs → ₹{int(sv*m['avg_order_value']):,}")
+    if m["rto_pct"] > 15:
+        sv = int(m["rto_count"]*0.12)
+        actions.append(f"**Order Confirmation Via AI** → stop ~{sv:,} fake orders before dispatch")
+    if not actions:
+        actions.append("Operations look healthy — focus on **NDD for Zone A/B** to improve NPS")
+
+    # zone NDD callout
+    zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
+    ndd_line = ""
+    if zone_col:
+        zab = df[df[zone_col].astype(str).str.upper().isin(["A","B"])]
+        if len(zab) > 0:
+            ndd_line = (f"\n\n**NDD Opportunity:** **{len(zab):,} shipments** ({len(zab)/max(m['total'],1)*100:.0f}%) "
+                        f"are in Zone A/B — eligible for **Elastic Run / PiknDel / Blitz** next-day delivery. "
+                        f"NDD reduces NDR by 15–20%.")
+
+    opener = (
+        f"**GDI Consultant — Proactive Briefing**\n\n"
+        f"I've analysed **{m['total']:,} shipments** across **{len(all_sellers)} sellers** and **{len(cour_df)} couriers**.\n\n"
+        f"**Delivery % → {m['delivery_pct']:.1f}%** ({m['delivered']:,} delivered of {att:,} attempted)"
+        + (f" · {pend:,} Pending Pickup excluded" if pend>0 else "") +
+        f"\n**RTO → {m['rto_pct']:.1f}%** · **NDR → {m['ndr_count']:,}** · **COD → {m['cod_pct']:.1f}%**\n\n"
+        f"**🔴 Biggest RTO hotspot:** {ws} at {wsr}\n"
+        f"**✅ Best courier:** {bc} ({bdr} delivery) · **⚠️ Worst:** {wc} ({wdr})\n\n"
+        f"**My recommendations for today:**\n"
+        + "\n".join(f"{i+1}. {a}" for i,a in enumerate(actions))
+        + ndd_line +
+        f"\n\n*Ask me anything — I'll give you case-specific insights, not generic advice.*"
+    )
     st.session_state["gdi_chat"] = [{"role":"assistant","content":opener,
-        "chips":["Simulate AI Calling","Simulate WhatsApp NDR","Compare all sellers","Why is RTO high?"],
+        "chips":["Simulate AI Calling","Simulate WhatsApp NDR","NDD opportunity",
+                 "Compare all sellers","Why is RTO high?","Give me action plan"],
         "sim":None,"chart":None}]
 
 # Render chat
@@ -607,7 +684,7 @@ for msg in st.session_state["gdi_chat"]:
         st.markdown('<div class="user-lbl">You</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="chat-bubble-user">{msg["content"]}</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="agent-lbl">🤖 GDI Agent</div>', unsafe_allow_html=True)
+        st.markdown('<div class="agent-lbl">🤖 GDI Consultant</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="chat-bubble-bot">{msg["content"]}</div>', unsafe_allow_html=True)
         if msg.get("sim"):   _render_sim(msg["sim"])
         if msg.get("chart"): _render_chart(msg["chart"])
