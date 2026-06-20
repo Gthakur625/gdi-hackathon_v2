@@ -10,6 +10,7 @@ st.set_page_config(
 pages = [
     st.Page("pages/0_GDI_Dashboard.py",   title="GDI Dashboard",    icon="⚡", default=True),
     st.Page("pages/7_GDI_Consultant.py",  title="GDI Consultant",   icon="🤖"),
+    st.Page("pages/8_VAS_Engine.py",      title="VAS Engine",        icon="⚙️"),
 ]
 pg = st.navigation(pages)
 pg.run()
