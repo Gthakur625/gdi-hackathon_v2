@@ -164,6 +164,15 @@ def _bullet(items, color="#D1D5DB"):
     return "".join(f'<div style="padding:4px 0;border-bottom:1px solid #1F2937;font-size:0.82rem;color:{color};">{it}</div>' for it in items)
 
 scope = f" — {selected_seller}" if (is_admin and selected_seller != "📊 All Sellers") else ""
+
+# Build footer meta string safely outside f-string to avoid nested interpolation bugs
+_ndd_note   = f" · 🚀 {zone_ab_count:,} Zone A/B — NDD via ElasticRun/PiknDel/Blitz" if zone_ab_count > 0 else ""
+_conc_note  = (f" · ⚠️ Courier concentration on {conc['dominant_courier']} ({conc['dominant_pct']:.0f}%)"
+               if conc.get("is_concentrated") else "")
+_footer_meta = (f"{m['total']:,} shipments · COD {m['cod_pct']:.0f}% · NDR {m['ndr_count']:,}"
+                f" · Avg ₹{m['avg_order_value']:,.0f} · {len(cour_perf)} couriers active"
+                f"{_ndd_note}{_conc_note}")
+
 st.markdown(f"""
 <div style="background:linear-gradient(135deg,#0F172A 0%,#111827 100%);
      border:1px solid #1F2937;border-radius:16px;padding:20px 24px;margin-bottom:18px;
@@ -207,10 +216,7 @@ st.markdown(f"""
   <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1F2937;
               display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
     <div style="font-size:0.78rem;color:#6B7280;">
-      {m['total']:,} shipments · COD {m['cod_pct']:.0f}% · NDR {m['ndr_count']:,}
-      · Avg ₹{m['avg_order_value']:,.0f} · {len(cour_perf)} couriers active
-      {f" · 🚀 {zone_ab_count:,} Zone A/B — NDD via ElasticRun/PiknDel/Blitz" if zone_ab_count > 0 else ""}
-      {f" · ⚠️ Courier concentration on {conc['dominant_courier']} ({conc['dominant_pct']:.0f}%)" if conc.get('is_concentrated') else ""}
+      {_footer_meta}
     </div>
     <div style="font-size:0.78rem;color:#34D399;font-weight:600;">
       💰 Total revenue unlock: ₹{total_pot:,}
