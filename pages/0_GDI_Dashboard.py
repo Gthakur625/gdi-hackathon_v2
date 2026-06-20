@@ -44,7 +44,7 @@ is_admin    = len(all_sellers) > 1
 st.markdown("""
 <div class="header-card">
   <h1 class="header-title">⚡ Velocity GDI — Growth & Delivery Intelligence</h1>
-  <p class="header-subtitle">Powered by Jaggu AI · Your AI KAM & Operations Expert</p>
+  <p class="header-subtitle">Powered by JaGau AI · Your AI KAM & Operations Expert</p>
 </div>""", unsafe_allow_html=True)
 
 # Seller search bar (only when multiple sellers)
@@ -164,7 +164,7 @@ st.markdown(f"""
   <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
     <div>
       <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.08em;margin-bottom:4px;">🤖 Jaggu AI — Executive Briefing{scope}</div>
+                  letter-spacing:0.08em;margin-bottom:4px;">🤖 JaGau AI — Executive Briefing{scope}</div>
       <div style="color:#FFFFFF;font-size:1.35rem;font-weight:800;line-height:1.2;">
         Status: <span style="color:{sc};">{rl}</span>
         <span style="color:#6B7280;font-size:0.9rem;font-weight:400;margin-left:12px;">

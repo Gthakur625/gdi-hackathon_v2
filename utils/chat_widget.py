@@ -190,7 +190,7 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
             f"Try: *Simulate AI Calling · Compare sellers · Top products · Why is RTO high?*")
 
 
-@st.dialog("🤖 Jaggu AI — Your AI KAM & Operations Expert", width="large")
+@st.dialog("🤖 JaGau AI — Your AI KAM & Operations Expert", width="large")
 def chat_dialog(df):
     """Inline chat popup — no page navigation needed."""
     m   = compute_kpis(df)
@@ -255,7 +255,7 @@ def render_chat_button(df):
     Uses st.markdown to inject directly into the page (not an iframe)."""
 
     # The actual Streamlit button (visible but styled as floating joker via CSS)
-    if st.button("🤖 Ask Jaggu AI", key="joker_trigger_btn", type="primary"):
+    if st.button("🤖 Ask JaGau AI", key="joker_trigger_btn", type="primary"):
         chat_dialog(df)
 
     # Inject CSS + JS to transform the button into a floating joker icon
@@ -305,7 +305,7 @@ def render_chat_button(df):
         box-shadow:0 4px 14px rgba(0,0,0,0.4); border:1px solid #374151;
         white-space:nowrap; opacity:0; transition:opacity 0.3s;
         pointer-events:none;
-    ">🤖 Ask Jaggu AI</div>
+    ">🤖 Ask JaGau AI</div>
 
     <style>
     @keyframes gdi-jpulse {
@@ -331,7 +331,7 @@ def render_chat_button(df):
         const allBtns = window.document.querySelectorAll('button');
         for (const btn of allBtns) {
             const txt = btn.innerText || btn.textContent || '';
-            if (txt.includes('Ask Jaggu AI') && txt.includes('🤖')) {
+            if (txt.includes('Ask JaGau AI') && txt.includes('🤖')) {
                 const wrapper = btn.closest('div[data-testid="stButton"]')
                               || btn.closest('.stButton')
                               || btn.parentElement;

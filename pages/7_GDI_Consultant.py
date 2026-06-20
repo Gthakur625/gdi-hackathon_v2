@@ -649,7 +649,7 @@ def ask(q):
 
 st.markdown("""
 <div class="header-card">
-  <h1 class="header-title">🤖 Jaggu AI — Your AI KAM & Operations Expert</h1>
+  <h1 class="header-title">🤖 JaGau AI — Your AI KAM & Operations Expert</h1>
   <p class="header-subtitle">Proactive insights on every seller, product & courier · VAS simulations · NDD recommendations · Courier allocation</p>
 </div>""", unsafe_allow_html=True)
 
@@ -770,7 +770,7 @@ for msg in st.session_state["gdi_chat"]:
         st.markdown('<div class="user-lbl">You</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="chat-bubble-user">{msg["content"]}</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="agent-lbl">🤖 Jaggu AI</div>', unsafe_allow_html=True)
+        st.markdown('<div class="agent-lbl">🤖 JaGau AI</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="chat-bubble-bot">{msg["content"]}</div>', unsafe_allow_html=True)
         if msg.get("sim"):   _render_sim(msg["sim"])
         if msg.get("chart"): _render_chart(msg["chart"])

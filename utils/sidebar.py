@@ -710,7 +710,7 @@ def render_sidebar_and_get_data():
               color:#fff !important;padding:11px 16px;border-radius:10px;
               font-weight:700;font-size:0.88rem;text-decoration:none;
               text-align:center;margin-bottom:6px;">
-      🤖 Ask Jaggu AI
+      🤖 Ask JaGau AI
     </a>
     <div style='color:#6B7280;font-size:0.72rem;text-align:center;'>
       Your AI KAM & Operations Expert
