@@ -44,7 +44,7 @@ is_admin    = len(all_sellers) > 1
 st.markdown("""
 <div class="header-card">
   <h1 class="header-title">⚡ Velocity GDI — Growth & Delivery Intelligence</h1>
-  <p class="header-subtitle">AI Operations Consultant · Diagnose · Recommend · Act</p>
+  <p class="header-subtitle">Powered by Jaggu AI · Your AI KAM & Operations Expert</p>
 </div>""", unsafe_allow_html=True)
 
 # Seller search bar (only when multiple sellers)
@@ -100,61 +100,58 @@ elif hs>=65: sc="#FBBF24"; rl="Medium Risk"; rb='<span class="badge-risk-medium"
 else:        sc="#FCA5A5"; rl="High Risk";   rb='<span class="badge-risk-high">🔴 High Risk</span>'
 total_pot = sum(r["revenue"] for r in recs)
 
-# NDD partners
-NDD_PARTNERS = ["Elastic Run", "PiknDel", "Blitz"]
+# ── NDD zone count (module-level) ────────────────────────────────────────────
 zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
 zone_ab_count = 0
 if zone_col:
     zone_ab_count = int(df[df[zone_col].astype(str).str.upper().isin(["A","B"])].shape[0])
 
-# ── AI EXECUTIVE BRIEFING ─────────────────────────────────────────────────────
-def _build_briefing(df, m, hs, recs, cour_perf, state_perf, seller_label):
-    """Generate proactive AI briefing text blocks for risks, opportunities, actions."""
-    risks, opps, actions = [], [], []
+# ── Courier concentration (module-level — used in briefing card AND footer) ──
+conc = detect_courier_concentration(df)
+vel  = build_velocity_recommendations(df, m, cour_perf, conc)
 
-    # Risks
-    if m["rto_pct"] > 20:
-        risks.append(f"🚨 RTO at <b style='color:#F87171;'>{m['rto_pct']:.1f}%</b> — above 20% threshold")
-    if m["cod_pct"] > 65:
-        risks.append(f"⚠️ COD at <b style='color:#C084FC;'>{m['cod_pct']:.1f}%</b> — high fake-order risk")
-    if m["ndr_pct"] > 15:
-        risks.append(f"⚠️ NDR backlog <b style='color:#FBBF24;'>{m['ndr_count']:,}</b> shipments unresolved")
-    if len(state_perf) > 0:
-        ws = state_perf.sort_values("rto_rate", ascending=False).iloc[0]
-        if ws["rto_rate"] > 30:
-            risks.append(f"🚨 <b>{ws['state']}</b> — {ws['rto_rate']:.0f}% RTO, your biggest hotspot")
-    if len(cour_perf) > 0:
-        wc = cour_perf.sort_values("delivery_rate").iloc[0]
-        if wc["delivery_rate"] < 70:
-            risks.append(f"⚠️ <b>{wc['courier']}</b> delivering only {wc['delivery_rate']:.0f}%")
-    if not risks:
-        risks.append("✅ No critical risks detected in current period")
+# ── AI EXECUTIVE BRIEFING (module-level, no function) ────────────────────────
+risks, opps, actions = [], [], []
 
-    # Velocity-first opportunities
-    conc = detect_courier_concentration(df)
-    vel  = build_velocity_recommendations(df, m, cour_perf, conc)
-    for r in vel[:4]:
-        icon = {"AI Calling":"📞","WhatsApp NDR":"💬","Order Confirmation Via AI":"✅",
-                "NDR Automation":"🔄","Courier Optimization":"🚚",
-                "Shipping Rule Optimization":"📋","Pincode Optimization":"📍",
-                "Multi-Courier Allocation":"⚠️","NDD Courier Activation":"🚀"
-                }.get(r["name"], "💡")
-        opps.append(f"{icon} <b>{r['name']}</b> — {r['metric']}")
-    if conc.get("is_concentrated"):
-        opps.append(f"⚠️ <b>Courier Concentration Risk</b> — {conc['dominant_pct']:.0f}% on {conc['dominant_courier']}, add ElasticRun / PiknDel / Blitz")
-    if not opps:
-        opps.append("✅ Operations healthy — expand volume via Multi-Courier Allocation")
+# Risks
+if m["rto_pct"] > 20:
+    risks.append(f"🚨 RTO at <b style='color:#F87171;'>{m['rto_pct']:.1f}%</b> — above 20% threshold")
+if m["cod_pct"] > 65:
+    risks.append(f"⚠️ COD at <b style='color:#C084FC;'>{m['cod_pct']:.1f}%</b> — high fake-order risk")
+if m["ndr_pct"] > 15:
+    risks.append(f"⚠️ NDR backlog <b style='color:#FBBF24;'>{m['ndr_count']:,}</b> shipments unresolved")
+if len(state_perf) > 0:
+    _ws = state_perf.sort_values("rto_rate", ascending=False).iloc[0]
+    if _ws["rto_rate"] > 30:
+        risks.append(f"🚨 <b>{_ws['state']}</b> — {_ws['rto_rate']:.0f}% RTO, your biggest hotspot")
+if len(cour_perf) > 0:
+    _wc = cour_perf.sort_values("delivery_rate").iloc[0]
+    if _wc["delivery_rate"] < 70:
+        risks.append(f"⚠️ <b>{_wc['courier']}</b> delivering only {_wc['delivery_rate']:.0f}%")
+if conc.get("is_concentrated"):
+    risks.append(f"⚠️ <b>Courier Concentration Risk</b> — {conc['dominant_pct']:.0f}% on {conc['dominant_courier']}")
+if not risks:
+    risks.append("✅ No critical risks detected in current period")
 
-    # Actions — Velocity-first
-    for i, r in enumerate(vel[:3], 1):
-        actions.append(f"<b>#{i}</b> <b>{r['name']}</b> — {r['impact']}")
-    if not actions:
-        actions.append("<b>#1</b> Maintain current VAS stack and monitor NDR age daily")
+# Opportunities (Velocity-first)
+_icon_map = {"AI Calling":"📞","WhatsApp NDR":"💬","Order Confirmation Via AI":"✅",
+             "NDR Automation":"🔄","Courier Optimization":"🚚",
+             "Shipping Rule Optimization":"📋","Pincode Optimization":"📍",
+             "Multi-Courier Allocation":"⚠️","NDD Courier Activation":"🚀"}
+for r in vel[:4]:
+    opps.append(f"{_icon_map.get(r['name'],'💡')} <b>{r['name']}</b> — {r['metric']}")
+if not opps:
+    opps.append("✅ Operations healthy — focus on NDD activation for Zone A/B")
 
-    return risks[:4], opps[:4], actions[:3]
+# Actions
+for i, r in enumerate(vel[:3], 1):
+    actions.append(f"<b>#{i}</b> <b>{r['name']}</b> — {r['impact']}")
+if not actions:
+    actions.append("<b>#1</b> Maintain current VAS stack and monitor NDR age daily")
 
-risks, opps, actions = _build_briefing(df, m, hs, recs, cour_perf, state_perf,
-                                        selected_seller if is_admin else None)
+risks   = risks[:4]
+opps    = opps[:4]
+actions = actions[:3]
 
 def _bullet(items, color="#D1D5DB"):
     return "".join(f'<div style="padding:4px 0;border-bottom:1px solid #1F2937;font-size:0.82rem;color:{color};">{it}</div>' for it in items)
@@ -167,7 +164,7 @@ st.markdown(f"""
   <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
     <div>
       <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.08em;margin-bottom:4px;">🤖 GDI Consultant — AI Executive Briefing{scope}</div>
+                  letter-spacing:0.08em;margin-bottom:4px;">🤖 Jaggu AI — Executive Briefing{scope}</div>
       <div style="color:#FFFFFF;font-size:1.35rem;font-weight:800;line-height:1.2;">
         Status: <span style="color:{sc};">{rl}</span>
         <span style="color:#6B7280;font-size:0.9rem;font-weight:400;margin-left:12px;">

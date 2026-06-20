@@ -705,15 +705,15 @@ def render_sidebar_and_get_data():
     sb.markdown("<hr style='border:0;height:1px;background:#1F2937;margin:16px 0 12px;'>",
                 unsafe_allow_html=True)
     sb.markdown("""
-    <a href="/7_AI_Chat_Assistant" target="_self"
+    <a href="/7_GDI_Consultant" target="_self"
        style="display:block;background:linear-gradient(135deg,#4F46E5,#7C3AED);
               color:#fff !important;padding:11px 16px;border-radius:10px;
               font-weight:700;font-size:0.88rem;text-decoration:none;
               text-align:center;margin-bottom:6px;">
-      🤖 Ask GDI Agent
+      🤖 Ask Jaggu AI
     </a>
     <div style='color:#6B7280;font-size:0.72rem;text-align:center;'>
-      Ask about sellers · products · couriers · VAS
+      Your AI KAM & Operations Expert
     </div>""", unsafe_allow_html=True)
 
     return df
