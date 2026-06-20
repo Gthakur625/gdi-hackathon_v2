@@ -74,9 +74,20 @@ cod_df   = df[df["payment_type"]=="COD"]
 prep_df  = df[df["payment_type"]=="Prepaid"]
 cod_rto  = len(cod_df[cod_df["delivery_status"]=="RTO"])   / max(len(cod_df),1)  * 100
 prep_rto = len(prep_df[prep_df["delivery_status"]=="RTO"]) / max(len(prep_df),1) * 100
-best_c   = cour_df.sort_values("delivery_rate",ascending=False).iloc[0] if len(cour_df)>0 else None
-worst_c  = cour_df.sort_values("delivery_rate").iloc[0]                 if len(cour_df)>0 else None
-worst_st = state_df.sort_values("rto_rate",ascending=False).iloc[0]    if len(state_df)>0 else None
+_has_cour  = len(cour_df) > 0
+_has_state = len(state_df) > 0
+best_c   = cour_df.sort_values("delivery_rate", ascending=False).iloc[0] if _has_cour  else None
+worst_c  = cour_df.sort_values("delivery_rate").iloc[0]                  if _has_cour  else None
+worst_st = state_df.sort_values("rto_rate", ascending=False).iloc[0]     if _has_state else None
+
+# Safe scalar accessors — avoids pandas Series boolean ambiguity
+def _c(row, key, default="N/A"):
+    """Safely get scalar from a pandas Series row or return default."""
+    return row[key] if row is not None else default
+
+best_c_name = _c(best_c, "courier");  best_c_dr  = _c(best_c, "delivery_rate", 0)
+worst_c_name= _c(worst_c,"courier");  worst_c_dr = _c(worst_c,"delivery_rate", 0)
+worst_st_name=_c(worst_st,"state");   worst_st_rr= _c(worst_st,"rto_rate", 0)
 
 # ── Velocity-first intelligence ───────────────────────────────────────────────
 conc       = detect_courier_concentration(df)
@@ -434,7 +445,7 @@ def reply(q):
             for _,r in cour_df.sort_values("delivery_rate",ascending=False).iterrows():
                 e="✅" if r["delivery_rate"]>=80 else ("⚠️" if r["delivery_rate"]>=70 else "🚨")
                 text+=f"{e} **{r['courier']}** — {r['delivery_rate']:.1f}% del | {r['rto_rate']:.1f}% RTO | {r['total']:,} shpts\n"
-            if best_c: text+=f"\n**Best:** {best_c['courier']} · **Avoid:** {worst_c['courier'] if worst_c else '-'}"
+            if _has_cour: text+=f"\n**Best:** {best_c_name} · **Avoid:** {worst_c_name}"
         chart=dict(orient="h",x=cour_df["courier"].tolist(),y=cour_df["delivery_rate"].tolist(),
                    title="Courier Delivery Rates (%)",color="#60A5FA")
         return text, ["Which courier is best for COD?","Show state RTO breakdown","Simulate Smart Routing"], None, chart
@@ -448,7 +459,7 @@ def reply(q):
                 r=row.iloc[0]; share=r["rto"]/max(m["rto_count"],1)*100
                 text=(f"**{stat}:**\n\n- {r['total']:,} shpts | RTO: **{r['rto_rate']:.1f}%** ({share:.0f}% of all RTOs)\n"
                       f"- Delivery: **{r['delivery_rate']:.1f}%**\n\n")
-                best_cour_name = best_c["courier"] if best_c is not None else "top courier"
+                best_cour_name = best_c_name if _has_cour else "top courier"
                 text+=("🚨 High-risk zone. **Activate AI Calling + Shipping Rule Optimization** — "
                        f"restrict COD for high-RTO pincodes in {stat}, "
                        f"route via **{best_cour_name}** for best delivery." if r["rto_rate"]>30
@@ -460,8 +471,8 @@ def reply(q):
             for _,r in state_df.sort_values("rto_rate",ascending=False).head(8).iterrows():
                 e="🚨" if r["rto_rate"]>30 else ("⚠️" if r["rto_rate"]>20 else "✅")
                 text+=f"{e} **{r['state']}** — {r['rto_rate']:.1f}% RTO | {r['total']:,} shpts\n"
-            if worst_st:
-                text+=f"\n**{worst_st['state']}** contributes {worst_st['rto']/max(m['rto_count'],1)*100:.0f}% of all RTOs."
+            if _has_state:
+                text+=f"\n**{worst_st_name}** contributes {worst_st_rr:.0f}% RTO rate."
         top8=state_df.sort_values("rto_rate",ascending=False).head(8)
         chart=dict(orient="h",x=top8["state"].tolist(),y=top8["rto_rate"].tolist(),
                    title="Worst States by RTO %",color="#F87171")
@@ -471,10 +482,10 @@ def reply(q):
     if has("rto","return","reduce rto","high rto","why rto","rto cause","rto issue","rto problem") \
        or (hasw("rto","return","returning") and hasw("why","high","cause","reduce","fix","improve","issue","problem")):
         causes=[]
-        if worst_c and worst_c["delivery_rate"]<75:
-            causes.append(f"**{worst_c['courier']}** delivering only {worst_c['delivery_rate']:.1f}%")
-        if worst_st and worst_st["rto_rate"]>25:
-            causes.append(f"**{worst_st['state']}** — {worst_st['rto_rate']:.1f}% RTO")
+        if _has_cour and worst_c_dr < 75:
+            causes.append(f"**{worst_c_name}** delivering only {worst_c_dr:.1f}%")
+        if _has_state and worst_st_rr > 25:
+            causes.append(f"**{worst_st_name}** — {worst_st_rr:.1f}% RTO")
         if m["cod_pct"]>60:
             causes.append(f"**{m['cod_pct']:.0f}% COD** with {cod_rto:.1f}% COD-RTO rate")
         text=(f"**RTO Root Cause — {m['rto_pct']:.1f}% current rate:**\n\n"
@@ -576,8 +587,8 @@ def reply(q):
     if has("action plan","30 day","roadmap","what should i do","help me improve","improve delivery","reduce rto plan") \
        or (hasw("action","plan","improve","fix","should","help","steps","roadmap") and hasw("do","me","my","our","delivery","rto","performance")):
         steps=[]
-        if m["delivery_pct"]<80 and best_c:
-            steps.append(f"1. **Route more to {best_c['courier']}** ({best_c['delivery_rate']:.1f}% del) — cut {worst_c['courier'] if worst_c else 'worst courier'}")
+        if m["delivery_pct"]<80 and _has_cour:
+            steps.append(f"1. **Route more to {best_c_name}** ({best_c_dr:.1f}% del) — cut {worst_c_name}")
         if m["rto_pct"]>20:
             steps.append("2. **Order Confirmation Via AI** — stop fake COD orders before dispatch")
             steps.append("3. **Shipping Rule Optimization** — restrict COD for high-RTO states/pincodes")
@@ -724,12 +735,12 @@ for i, qq in enumerate(quick):
 
 # Init chat — proactive briefing every session
 if "gdi_chat" not in st.session_state:
-    ws   = worst_st["state"]           if worst_st is not None else "N/A"
-    wsr  = f"{worst_st['rto_rate']:.0f}%" if worst_st is not None else "N/A"
-    bc   = best_c["courier"]           if best_c  is not None else "N/A"
-    bdr  = f"{best_c['delivery_rate']:.0f}%" if best_c is not None else "N/A"
-    wc   = worst_c["courier"]          if worst_c is not None else "N/A"
-    wdr  = f"{worst_c['delivery_rate']:.0f}%" if worst_c is not None else "N/A"
+    ws   = worst_st["state"]           if _has_state else "N/A"
+    wsr  = f"{worst_st_rr:.0f}%" if _has_state else "N/A"
+    bc   = best_c_name
+    bdr  = f"{best_c_dr:.0f}%" if _has_cour else "N/A"
+    wc   = worst_c_name
+    wdr  = f"{worst_c_dr:.0f}%" if _has_cour else "N/A"
     att  = m.get("attempted_total", m["total"])
     pend = m.get("pending_count", 0)
 
