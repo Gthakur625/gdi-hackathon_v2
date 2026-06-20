@@ -4,11 +4,14 @@ import pandas as pd
 import numpy as np
 import re, sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils.styles  import apply_styles
-from utils.sidebar import render_sidebar_and_get_data
-from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
-                           compute_sku_perf, compute_courier_perf, compute_state_perf,
-                           get_recommendations)
+from utils.styles          import apply_styles
+from utils.sidebar         import render_sidebar_and_get_data
+from utils.metrics         import (compute_kpis, compute_health_score, compute_vas_adoption_score,
+                                   compute_sku_perf, compute_courier_perf, compute_state_perf,
+                                   get_recommendations)
+from utils.recommendations import (detect_courier_concentration, recommend_by_state,
+                                   recommend_by_product, recommend_by_pincode,
+                                   build_velocity_recommendations, NDD_COURIERS)
 
 apply_styles()
 
@@ -51,6 +54,14 @@ prep_rto = len(prep_df[prep_df["delivery_status"]=="RTO"]) / max(len(prep_df),1)
 best_c   = cour_df.sort_values("delivery_rate",ascending=False).iloc[0] if len(cour_df)>0 else None
 worst_c  = cour_df.sort_values("delivery_rate").iloc[0]                 if len(cour_df)>0 else None
 worst_st = state_df.sort_values("rto_rate",ascending=False).iloc[0]    if len(state_df)>0 else None
+
+# ── Velocity-first intelligence ───────────────────────────────────────────────
+conc       = detect_courier_concentration(df)
+m["courier_concentration"] = conc.get("is_concentrated", False)
+vel_recs   = build_velocity_recommendations(df, m, cour_df, conc)
+state_recs = recommend_by_state(df, cour_df)
+prod_recs  = recommend_by_product(df, cour_df)
+pin_recs   = recommend_by_pincode(df, cour_df)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -182,20 +193,24 @@ def _build_ctx():
         tp["rr"]=tp["rto"]/tp["total"]*100
         for _,r in tp.sort_values("total",ascending=False).head(8).iterrows():
             lines.append(f"  {r['product_name']}: {r['total']:,} orders | rto={r['rr']:.1f}%")
-    lines += ["VAS: AI Calling=38% NDR recovery | WhatsApp NDR=8% COD RTO reduction | Order Confirmation=12% pre-dispatch RTO reduction | ATS Address Verification=4-6% RTO reduction"]
+    lines += ["VELOCITY SERVICES (priority order): AI Calling=38% NDR recovery | WhatsApp NDR=8% COD RTO reduction | Order Confirmation=12% pre-dispatch RTO reduction | NDR Automation=rule-based NDR routing | Courier Optimization=rebalance by delivery rate | Shipping Rule Optimization=state/pincode COD restrictions | Pincode Optimization=blacklist high-RTO pins | Multi-Courier Allocation=add ElasticRun/PiknDel/Blitz | NDD Activation=Zone A/B next-day delivery"]
+    if conc.get("is_concentrated"):
+        lines += [f"COURIER CONCENTRATION RISK: {conc['dominant_pct']:.0f}% on {conc['dominant_courier']} — recommend adding {', '.join(conc.get('recommended_add',[])[:3])}"]
     return "\n".join(lines)
 
 def _claude(q):
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=_api_key())
+        from utils.recommendations import KAM_SYSTEM_PROMPT
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001", max_tokens=500,
-            system=f"""You are GDI Agent for Velocity Shipping. Goal: reduce RTO, improve delivery %, give sellers best product/location/courier insights.
+            model="claude-haiku-4-5-20251001", max_tokens=600,
+            system=f"""{KAM_SYSTEM_PROMPT}
 
+LIVE DATA FOR THIS SESSION:
 {_build_ctx()}
 
-Rules: Answer using ONLY the numbers above. Be specific. Use **bold** for key numbers. End with 1-2 action recommendations. Under 180 words.""",
+FORMAT: Use **bold** for key numbers. Be specific to this seller's data. Under 220 words.""",
             messages=[{"role":"user","content":q}]
         )
         return resp.content[0].text
@@ -328,6 +343,57 @@ def reply(q):
             text+=f"\n⚠️ RTO is **{pm['rto_pct']/max(m['rto_pct'],1):.1f}x above average**. Activate Order Confirmation Via AI for this product."
         return text, ["Show top selling products","Simulate Order Confirmation","Which state causes most RTO?"], None, None
 
+    # ── Courier Concentration Risk ────────────────────────────────────────────
+    if has("courier concentration","single courier","one courier","multi courier","multi-courier","concentration risk") \
+       or (conc.get("is_concentrated") and hasw("courier","allocation","risk","single")):
+        rec_cs = conc.get("recommended_add", list(NDD_COURIERS.keys()))
+        if conc.get("is_concentrated"):
+            text = (f"⚠️ **Courier Concentration Risk Detected**\n\n"
+                    f"**{conc['dominant_pct']:.0f}%** of your volume ({conc['dominant_volume']:,} shipments) "
+                    f"runs on **{conc['dominant_courier']}** alone.\n\n"
+                    f"**Recommended additions from Velocity network:**\n")
+            for c in rec_cs[:3]:
+                info = NDD_COURIERS.get(c, {})
+                text += (f"- **{c}** — {info.get('strength','Velocity-integrated NDD')}, "
+                         f"~{info.get('del_rate',85)}% delivery benchmark\n")
+            if state_recs:
+                text += f"\n**Where to start (by state performance gap):**\n"
+                for r in state_recs[:4]:
+                    text += (f"- **{r['state']}**: {r['current_dr']:.0f}% on {r['current_courier']} "
+                             f"→ **{r['rec_courier']}** (+{r['improvement']:.0f}%)\n")
+        else:
+            text = (f"{conc.get('courier_count',1)} couriers active. "
+                    f"Concentration risk is low. Focus on optimising allocation by pincode.")
+        return text, ["Show state-wise recommendations","Activate NDD couriers","Simulate AI Calling"], None, None
+
+    # ── Velocity recommendations ──────────────────────────────────────────────
+    if has("recommend","action plan","velocity","vas","services","what should","improve","growth plan") \
+       or (hasw("recommend","should","activate","enable","improve") and hasw("velocity","service","product","vas")):
+        text = f"**Your Velocity Action Plan** — based on your {m['total']:,} shipments:\n\n"
+        if conc.get("is_concentrated"):
+            text += f"⚠️ **Courier Concentration Risk:** {conc['dominant_pct']:.0f}% on {conc['dominant_courier']}.\n\n"
+        for r in vel_recs[:7]:
+            text += f"**#{r['priority']}. {r['name']}** — triggered: _{r['trigger']}_\n→ {r['impact']}\n→ **{r['metric']}**\n\n"
+        return text, ["Courier concentration risk","State-wise recommendations",
+                      "Simulate AI Calling","Simulate WhatsApp NDR"], None, None
+
+    # ── State-wise courier recommendations ────────────────────────────────────
+    if has("state recommendation","state wise","state-wise","by state") \
+       or (hasw("state","states") and hasw("courier","recommend","improve","switch")):
+        if not state_recs:
+            return ("No significant courier improvement gaps found by state.", [], None, None)
+        text = f"**State-wise Courier Recommendations** ({m['total']:,} shipments):\n\n"
+        for r in state_recs[:8]:
+            text += (f"- **{r['state']}** ({r['shipments']:,} shpts): "
+                     f"{r['current_dr']:.0f}% via {r['current_courier']} "
+                     f"→ switch to **{r['rec_courier']}** → ~{r['expected_dr']:.0f}% "
+                     f"*(+{r['improvement']:.0f}%)*\n")
+        chart = dict(orient="h", x=[r["state"] for r in state_recs[:8]],
+                     y=[r["improvement"] for r in state_recs[:8]],
+                     title="Expected Delivery Gain by State (%)", color="#34D399")
+        return text, ["Courier concentration risk","Show pincode recommendations",
+                      "Product recommendations"], None, chart
+
     # ── Couriers ─────────────────────────────────────────────────────────────
     if cour or has("courier","3pl","carrier","logistics","shipping partner","courier performance") \
        or hasw("couriers","carriers","3pl","logistics"):
@@ -359,8 +425,12 @@ def reply(q):
                 r=row.iloc[0]; share=r["rto"]/max(m["rto_count"],1)*100
                 text=(f"**{stat}:**\n\n- {r['total']:,} shpts | RTO: **{r['rto_rate']:.1f}%** ({share:.0f}% of all RTOs)\n"
                       f"- Delivery: **{r['delivery_rate']:.1f}%**\n\n")
-                text+=("🚨 High-risk. Activate ATS Address Verification + AI Calling for this state." if r["rto_rate"]>30
-                       else ("⚠️ Restrict COD for low-value orders here." if r["rto_rate"]>20 else "✅ Within acceptable range."))
+                best_cour_name = best_c["courier"] if best_c is not None else "top courier"
+                text+=("🚨 High-risk zone. **Activate AI Calling + Shipping Rule Optimization** — "
+                       f"restrict COD for high-RTO pincodes in {stat}, "
+                       f"route via **{best_cour_name}** for best delivery." if r["rto_rate"]>30
+                       else (f"⚠️ Moderate risk. Restrict COD for orders < ₹500 in {stat} and activate WhatsApp NDR."
+                             if r["rto_rate"]>20 else "✅ Within acceptable range."))
             else: text=f"No data for {stat}."
         else:
             text="**State-wise RTO Analysis:**\n\n"
@@ -387,10 +457,11 @@ def reply(q):
         text=(f"**RTO Root Cause — {m['rto_pct']:.1f}% current rate:**\n\n"
               +("\n".join(f"- {c}" for c in causes) if causes else "- Multiple factors contributing")+
               f"\n\n**3-step RTO reduction plan:**\n"
-              f"1. **Order Confirmation Via AI** → filter fake orders pre-dispatch (saves ~{int(m['rto_count']*0.12):,}/month)\n"
-              f"2. **ATS Address Verification** → fix address RTOs at checkout\n"
-              f"3. **WhatsApp AI NDR** → recover failed COD deliveries (saves ~{int(m['rto_count']*0.08):,}/month)\n"
-              f"\nExpected improvement: **-8 to -12% RTO**")
+              f"1. **Order Confirmation Via AI** → filter fake COD orders pre-dispatch (~{int(m['rto_count']*0.12):,} RTOs/month)\n"
+              f"2. **WhatsApp NDR** → recover failed COD deliveries (~{int(m['rto_count']*0.08):,} RTOs/month)\n"
+              f"3. **Shipping Rule Optimization** → restrict COD for high-RTO states and pincodes\n"
+              f"4. **Pincode Optimization** → blacklist pincodes with >50% RTO via Velocity portal\n"
+              f"\nExpected improvement: **-8 to -15% RTO**")
         top6=state_df.sort_values("rto_rate",ascending=False).head(6)
         chart=dict(orient="h",x=top6["state"].tolist(),y=top6["rto_rate"].tolist(),
                    title="Top States Contributing to RTO",color="#F87171")
@@ -486,7 +557,10 @@ def reply(q):
             steps.append(f"1. **Route more to {best_c['courier']}** ({best_c['delivery_rate']:.1f}% del) — cut {worst_c['courier'] if worst_c else 'worst courier'}")
         if m["rto_pct"]>20:
             steps.append("2. **Order Confirmation Via AI** — stop fake COD orders before dispatch")
-            steps.append("3. **ATS Address Verification** — fix address-driven RTOs at checkout")
+            steps.append("3. **Shipping Rule Optimization** — restrict COD for high-RTO states/pincodes")
+            steps.append("4. **Pincode Optimization** — blacklist pincodes with >50% RTO")
+        if conc.get("is_concentrated"):
+            steps.append(f"{'5' if m['rto_pct']>20 else '3'}. **Multi-Courier Allocation** — add ElasticRun / PiknDel / Blitz to reduce concentration risk")
         if m["ndr_pct"]>15:
             steps.append("4. **AI Calling** — recover 38% of NDR shipments with IVR outreach")
         if m["cod_pct"]>60 and m["ndr_pct"]>10:
@@ -673,9 +747,21 @@ if "gdi_chat" not in st.session_state:
         + ndd_line +
         f"\n\n*Ask me anything — I'll give you case-specific insights, not generic advice.*"
     )
+    # Add concentration risk to opener if detected
+    conc_line = ""
+    if conc.get("is_concentrated"):
+        conc_line = (f"\n\n⚠️ **Courier Concentration Risk:** {conc['dominant_pct']:.0f}% of volume "
+                     f"on {conc['dominant_courier']} alone. "
+                     f"Recommend activating **ElasticRun / PiknDel / Blitz** to diversify.")
+        opener += conc_line
+
+    chips_list = ["Simulate AI Calling","Simulate WhatsApp NDR"]
+    if conc.get("is_concentrated"):
+        chips_list.append("Courier concentration risk")
+    chips_list += ["State-wise recommendations","Why is RTO high?","Velocity action plan"]
+
     st.session_state["gdi_chat"] = [{"role":"assistant","content":opener,
-        "chips":["Simulate AI Calling","Simulate WhatsApp NDR","NDD opportunity",
-                 "Compare all sellers","Why is RTO high?","Give me action plan"],
+        "chips": chips_list[:6],
         "sim":None,"chart":None}]
 
 # Render chat

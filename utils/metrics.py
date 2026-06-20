@@ -1,46 +1,64 @@
 import pandas as pd
 import numpy as np
 
+# Velocity-first VAS catalog.
+# ATS is deprioritised — appears only when triggered AND other options already exist.
 VAS_CATALOG = [
     {
         "name":    "AI Calling",
-        "trigger": lambda m: m["ndr_pct"] > 15,
-        "impact":  lambda m: f"Recover ~{int(m['ndr_count']*0.38)} NDR shipments via AI-powered outbound calling",
+        "trigger": lambda m: m["ndr_pct"] > 10,
+        "impact":  lambda m: f"Recover ~{int(m['ndr_count']*0.38):,} NDR shipments via AI IVR outreach",
         "revenue": lambda m: int(m["ndr_count"] * 0.38 * m["avg_order_value"]),
-        "badge":   "AI Calling",
+        "badge":   "Velocity · AI Calling",
         "color":   "#818CF8",
     },
     {
+        "name":    "WhatsApp NDR",
+        "trigger": lambda m: m["cod_pct"] > 50 and m["ndr_pct"] > 8,
+        "impact":  lambda m: f"Re-engage {int(m['ndr_count']*0.8):,} COD NDRs via WhatsApp — {int(m['rto_count']*0.08):,} RTOs preventable",
+        "revenue": lambda m: int(m["rto_count"] * 0.08 * m["avg_order_value"]),
+        "badge":   "Velocity · WhatsApp",
+        "color":   "#25D366",
+    },
+    {
         "name":    "Order Confirmation Via AI",
-        "trigger": lambda m: m["rto_pct"] > 15 or m["cod_pct"] > 50,
-        "impact":  lambda m: f"Confirm intent before dispatch — save ~{int(m['rto_count']*0.12)} fake/RTO orders",
+        "trigger": lambda m: m["rto_pct"] > 12 or m["cod_pct"] > 55,
+        "impact":  lambda m: f"Block ~{int(m['rto_count']*0.12):,} fake COD orders before dispatch",
         "revenue": lambda m: int(m["rto_count"] * 0.12 * m["avg_order_value"]),
-        "badge":   "Order Confirmation",
+        "badge":   "Velocity · Pre-Dispatch",
         "color":   "#34D399",
     },
     {
-        "name":    "WhatsApp AI NDR",
-        "trigger": lambda m: m["cod_pct"] > 60 and m["ndr_pct"] > 10,
-        "impact":  lambda m: f"Reduce COD RTO by ~8% (~{int(m['rto_count']*0.08)} saved) via WhatsApp nudges",
-        "revenue": lambda m: int(m["rto_count"] * 0.08 * m["avg_order_value"]),
-        "badge":   "WhatsApp AI NDR",
-        "color":   "#FBBF24",
-    },
-    {
-        "name":    "ATS Address Verification",
-        "trigger": lambda m: m["rto_pct"] > 20,
-        "impact":  lambda m: f"Reduce RTO by ~4–6% (~{int(m['total']*0.05)} shipments) via AI address correction at checkout",
-        "revenue": lambda m: int(m["total"] * 0.05 * m["avg_order_value"]),
-        "badge":   "ATS Recommended",
+        "name":    "NDR Automation",
+        "trigger": lambda m: m["ndr_pct"] > 20,
+        "impact":  lambda m: f"Auto-route {m['ndr_count']:,} NDRs to AI Calling / WhatsApp by reason + attempt count",
+        "revenue": lambda m: int(m["ndr_count"] * 0.20 * m["avg_order_value"]),
+        "badge":   "Velocity · Automation",
         "color":   "#60A5FA",
     },
     {
-        "name":    "ATS Smart Routing",
-        "trigger": lambda m: m["courier_score_variance"] > 15,
-        "impact":  lambda m: "Improve delivery by 3–5% via pincode-level courier routing intelligence",
+        "name":    "Courier Optimization",
+        "trigger": lambda m: m["courier_score_variance"] > 10,
+        "impact":  lambda m: "Reallocate volume to best-performing courier — data-backed routing by state + pincode",
+        "revenue": lambda m: int(m["total"] * 0.03 * m["avg_order_value"]),
+        "badge":   "Velocity · Routing",
+        "color":   "#FBBF24",
+    },
+    {
+        "name":    "Multi-Courier Allocation",
+        "trigger": lambda m: m.get("courier_concentration", False),
+        "impact":  lambda m: "Add ElasticRun / PiknDel / Blitz — reduce single-courier delivery risk",
+        "revenue": lambda m: int(m["total"] * 0.02 * m["avg_order_value"]),
+        "badge":   "Velocity · Allocation",
+        "color":   "#EF4444",
+    },
+    {
+        "name":    "ATS Address Verification",
+        "trigger": lambda m: m["rto_pct"] > 28,
+        "impact":  lambda m: f"Address correction at checkout — secondary to Velocity actions above",
         "revenue": lambda m: int(m["total"] * 0.04 * m["avg_order_value"]),
-        "badge":   "Smart Routing",
-        "color":   "#C084FC",
+        "badge":   "ATS Partner Feature",
+        "color":   "#6B7280",
     },
 ]
 
@@ -103,7 +121,8 @@ def compute_health_score(m):
 def compute_vas_adoption_score(df):
     if "vas_active" not in df.columns:
         return 20
-    all_vas = ["AI Calling","Order Confirmation Via AI","WhatsApp AI NDR","ATS Address Verification"]
+    all_vas = ["AI Calling","WhatsApp NDR","Order Confirmation Via AI",
+               "NDR Automation","Courier Optimization","Multi-Courier Allocation"]
     active_sets = df["vas_active"].dropna().str.split(", ")
     unique_active = set()
     for s in active_sets:
@@ -189,7 +208,7 @@ def get_anomalies(df, m, state_perf, courier_perf):
                 "title":  f"Geographic RTO Cluster — {worst['state']}",
                 "detail": f"{worst['state']} accounts for {share:.0f}% of all RTOs ({int(worst['rto'])} shipments). "
                           f"Root cause: address quality + COD non-acceptance.",
-                "fix":    f"Enable ATS Address Verification for {worst['state']} orders.",
+                "fix":    f"Activate AI Calling + Shipping Rule Optimization for {worst['state']} — restrict COD for high-RTO pincodes in this state.",
                 "icon":   "🔴",
             })
 
@@ -203,7 +222,7 @@ def get_anomalies(df, m, state_perf, courier_perf):
                 "title":  f"Courier Misallocation — {worst_c['courier']}",
                 "detail": f"{worst_c['courier']} holds {worst_share:.0f}% of volume but delivers only "
                           f"{worst_c['delivery_rate']:.1f}%. No smart routing rules in place.",
-                "fix":    f"Shift {worst_c['courier']} share to ATS (Velocity) for standard pincodes.",
+                "fix":    f"Activate Courier Optimization — shift {worst_share:.0f}% of {worst_c['courier']} volume to better-performing couriers. Use Multi-Courier Allocation for state-level routing.",
                 "icon":   "🟡",
             })
 
@@ -250,7 +269,7 @@ def get_anomalies(df, m, state_perf, courier_perf):
                 "title":  f"Category Spike — {worst_cat} RTO {worst_rate:.0f}%",
                 "detail": f"{worst_cat} products have {worst_rate:.0f}% RTO — {(worst_rate/max(avg_rto,1)):.1f}x the seller average. "
                           f"High-value + COD combination is the primary driver.",
-                "fix":    f"Restrict COD for {worst_cat} in high-risk states. Enable ATS Smart Routing.",
+                "fix":    f"Restrict COD for {worst_cat} in high-risk states via Velocity Shipping Rules. Activate Order Confirmation Via AI for COD orders in this category.",
                 "icon":   "🔵",
             })
 

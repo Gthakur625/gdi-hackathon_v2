@@ -10,6 +10,8 @@ from utils.sidebar              import render_sidebar_and_get_data
 from utils.chat_widget          import render_chat_button
 from utils.seller_intelligence  import render_seller_intelligence
 from utils.agent_ops            import render_agent_ops
+from utils.recommendations      import (detect_courier_concentration,
+                                        build_velocity_recommendations, NDD_COURIERS)
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
                            compute_courier_perf, compute_state_perf, get_recommendations,
                            get_anomalies)
@@ -128,26 +130,24 @@ def _build_briefing(df, m, hs, recs, cour_perf, state_perf, seller_label):
     if not risks:
         risks.append("✅ No critical risks detected in current period")
 
-    # Opportunities
-    if m["ndr_count"] > 10:
-        rec = int(m["ndr_count"] * 0.38)
-        opps.append(f"📞 <b>AI Calling</b> → recover ~{rec:,} NDRs → <b style='color:#34D399;'>₹{int(rec*m['avg_order_value']):,}</b>")
-    if m["cod_pct"] > 55 and m["ndr_pct"] > 10:
-        saved = int(m["rto_count"] * 0.08)
-        opps.append(f"💬 <b>WhatsApp AI NDR</b> → prevent ~{saved:,} COD RTOs → <b style='color:#34D399;'>₹{int(saved*m['avg_order_value']):,}</b>")
-    if m["rto_pct"] > 15:
-        saved = int(m["rto_count"] * 0.12)
-        opps.append(f"🔍 <b>Order Confirmation Via AI</b> → stop ~{saved:,} fake orders → <b style='color:#34D399;'>₹{int(saved*m['avg_order_value']):,}</b>")
-    if zone_ab_count > 0:
-        pct = zone_ab_count / max(m["total"], 1) * 100
-        opps.append(f"🚀 <b>NDD (Elastic Run / PiknDel / Blitz)</b> → {pct:.0f}% orders in Zone A/B eligible for next-day delivery")
+    # Velocity-first opportunities
+    conc = detect_courier_concentration(df)
+    vel  = build_velocity_recommendations(df, m, cour_perf, conc)
+    for r in vel[:4]:
+        icon = {"AI Calling":"📞","WhatsApp NDR":"💬","Order Confirmation Via AI":"✅",
+                "NDR Automation":"🔄","Courier Optimization":"🚚",
+                "Shipping Rule Optimization":"📋","Pincode Optimization":"📍",
+                "Multi-Courier Allocation":"⚠️","NDD Courier Activation":"🚀"
+                }.get(r["name"], "💡")
+        opps.append(f"{icon} <b>{r['name']}</b> — {r['metric']}")
+    if conc.get("is_concentrated"):
+        opps.append(f"⚠️ <b>Courier Concentration Risk</b> — {conc['dominant_pct']:.0f}% on {conc['dominant_courier']}, add ElasticRun / PiknDel / Blitz")
     if not opps:
-        opps.append("✅ Operations healthy — focus on expanding volume with top couriers")
+        opps.append("✅ Operations healthy — expand volume via Multi-Courier Allocation")
 
-    # Actions (prioritised)
-    priority = sorted(recs, key=lambda r: r["revenue"], reverse=True)
-    for i, r in enumerate(priority[:3], 1):
-        actions.append(f"<b>#{i}</b> Activate <b>{r['name']}</b> — {r['impact']}")
+    # Actions — Velocity-first
+    for i, r in enumerate(vel[:3], 1):
+        actions.append(f"<b>#{i}</b> <b>{r['name']}</b> — {r['impact']}")
     if not actions:
         actions.append("<b>#1</b> Maintain current VAS stack and monitor NDR age daily")
 
@@ -202,7 +202,8 @@ st.markdown(f"""
     <div style="font-size:0.78rem;color:#6B7280;">
       {m['total']:,} shipments · COD {m['cod_pct']:.0f}% · NDR {m['ndr_count']:,}
       · Avg ₹{m['avg_order_value']:,.0f} · {len(cour_perf)} couriers active
-      {f" · 🚀 {zone_ab_count:,} Zone A/B NDD-eligible" if zone_ab_count > 0 else ""}
+      {f" · 🚀 {zone_ab_count:,} Zone A/B — NDD via ElasticRun/PiknDel/Blitz" if zone_ab_count > 0 else ""}
+      {f" · ⚠️ Courier concentration on {conc['dominant_courier']} ({conc['dominant_pct']:.0f}%)" if conc.get('is_concentrated') else ""}
     </div>
     <div style="font-size:0.78rem;color:#34D399;font-weight:600;">
       💰 Total revenue unlock: ₹{total_pot:,}
