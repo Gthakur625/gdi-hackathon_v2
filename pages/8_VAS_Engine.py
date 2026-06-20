@@ -363,7 +363,7 @@ st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 addr_keywords  = ["address","wrong","incomplete","not found","locality","pin","zip","location"]
 addr_ndr_count = 0
 if "ndr_reason" in df.columns:
-    addr_ndr_count = int(df["ndr_reason"].astype(str).str.lower()
+    addr_ndr_count = int(df["ndr_reason"].fillna("").astype(str).str.lower()
                          .apply(lambda x: any(kw in x for kw in addr_keywords)).sum())
 addr_rto_pct   = addr_ndr_count / max(ndr_total, 1) * 100
 score_ats      = _priority(m["rto_pct"] + addr_rto_pct * 0.5, thresholds=(30, 20, 10))
