@@ -37,6 +37,31 @@ except Exception as e:
     st.error(f"Data load error: {e}")
     st.stop()
 
+# ── Seller filter (before all computations) ───────────────────────────────────
+all_sellers = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
+is_admin    = len(all_sellers) > 1
+
+if is_admin:
+    sel_jagau = st.selectbox(
+        "🔍 Select Seller — JaGau will use only this seller's data",
+        ["📊 All Sellers"] + all_sellers,
+        key="jagau_seller_filter",
+        help="JaGau AI answers will be specific to the selected seller"
+    )
+    if sel_jagau != "📊 All Sellers":
+        df = df[df["seller_name"] == sel_jagau].copy()
+        st.markdown(
+            f"<div style='background:rgba(79,70,229,0.1);border:1px solid rgba(79,70,229,0.3);"
+            f"border-radius:8px;padding:8px 14px;margin-bottom:8px;color:#818CF8;font-weight:600;font-size:0.85rem;'>"
+            f"🤖 JaGau AI is analysing <b>{sel_jagau}</b> — {len(df):,} shipments</div>",
+            unsafe_allow_html=True)
+        # Reset chat when seller changes
+        if st.session_state.get("_last_jagau_seller") != sel_jagau:
+            st.session_state["gdi_chat"] = []
+            st.session_state["_last_jagau_seller"] = sel_jagau
+else:
+    sel_jagau = all_sellers[0] if all_sellers else "All"
+
 # ── precompute ────────────────────────────────────────────────────────────────
 m           = compute_kpis(df)
 m["vas_adoption_score"] = compute_vas_adoption_score(df)
@@ -44,8 +69,6 @@ hs          = compute_health_score(m)
 recs        = get_recommendations(m)
 cour_df     = compute_courier_perf(df)
 state_df    = compute_state_perf(df)
-all_sellers = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
-is_admin    = len(all_sellers) > 1
 
 cod_df   = df[df["payment_type"]=="COD"]
 prep_df  = df[df["payment_type"]=="Prepaid"]

@@ -366,12 +366,28 @@ def _quick_reply(q, df, m, hs, cour_df, state_df, all_sellers):
 
 @st.dialog("🤖 JaGau AI — Your AI KAM & Operations Expert", width="large")
 def chat_dialog(df):
-    m        = compute_kpis(df)
-    m["vas_adoption_score"] = compute_vas_adoption_score(df)
+    # Seller filter inside dialog
+    all_sellers_dlg = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
+    if len(all_sellers_dlg) > 1:
+        sel_dlg = st.selectbox(
+            "🔍 Analyse specific seller",
+            ["📊 All Sellers"] + all_sellers_dlg,
+            key="dlg_seller_sel",
+            label_visibility="collapsed"
+        )
+        df_used = df[df["seller_name"]==sel_dlg].copy() if sel_dlg != "📊 All Sellers" else df
+        if sel_dlg != "📊 All Sellers":
+            st.caption(f"📌 JaGau AI is using **{sel_dlg}** data only ({len(df_used):,} shipments)")
+    else:
+        df_used = df
+        sel_dlg = all_sellers_dlg[0] if all_sellers_dlg else "All"
+
+    m        = compute_kpis(df_used)
+    m["vas_adoption_score"] = compute_vas_adoption_score(df_used)
     hs       = compute_health_score(m)
-    cour_df  = compute_courier_perf(df)
-    state_df = compute_state_perf(df)
-    all_sellers = sorted(df["seller_name"].unique().tolist()) if "seller_name" in df.columns else []
+    cour_df  = compute_courier_perf(df_used)
+    state_df = compute_state_perf(df_used)
+    all_sellers = all_sellers_dlg
 
     rc = "#34D399" if hs>=80 else ("#FBBF24" if hs>=65 else "#F87171")
     att = m.get("attempted_total", m["total"])
@@ -414,7 +430,8 @@ def chat_dialog(df):
     if sel_q or user_input:
         prompt = sel_q or user_input
         st.session_state["dialog_chat"].append({"role":"user","content":prompt})
-        answer = _quick_reply(prompt, df, m, hs, cour_df, state_df, all_sellers)
+        # Use df_used so answers respect the seller filter
+        answer = _quick_reply(prompt, df_used, m, hs, cour_df, state_df, all_sellers)
         st.session_state["dialog_chat"].append({"role":"assistant","content":answer})
         st.rerun()
 
@@ -429,48 +446,55 @@ def chat_dialog(df):
 
 
 def render_chat_button(df):
-    """Reliable floating JaGau AI button — pure CSS, no JS hacks."""
-    # Inject the floating button CSS + HTML
+    """
+    Floating JaGau AI button — two-part approach:
+    1. A visible st.button (functional trigger) placed at bottom right
+    2. CSS that positions it as a fixed floating pill
+    The key trick: target our specific button via its aria-label / key.
+    """
+    # Inject CSS that turns our specific button into a floating pill
     st.markdown("""
     <style>
-    .jagau-float {
+    /* Make our jagau button floating */
+    [data-testid="stButton"] button[kind="primary"] {
+        /* only target if it has the right content — we use a unique emoji combo */
+    }
+    div.jagau-trigger-wrapper {
         position: fixed;
-        bottom: 26px;
-        right: 26px;
+        bottom: 24px;
+        right: 24px;
         z-index: 999999;
-        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-        color: #FFFFFF;
-        border: 2px solid rgba(255,255,255,0.2);
-        border-radius: 50px;
-        padding: 12px 20px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        font-family: 'Outfit', system-ui, sans-serif;
-        box-shadow: 0 4px 24px rgba(79,70,229,0.5);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        text-decoration: none;
-        transition: all 0.25s ease;
-        animation: jagau-pulse 3s ease-in-out infinite;
     }
-    .jagau-float:hover {
-        transform: translateY(-3px) scale(1.04);
-        box-shadow: 0 8px 32px rgba(79,70,229,0.65);
-        color: #FFFFFF;
+    div.jagau-trigger-wrapper button {
+        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%) !important;
+        color: #FFFFFF !important;
+        border: 2px solid rgba(255,255,255,0.2) !important;
+        border-radius: 50px !important;
+        padding: 12px 22px !important;
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        box-shadow: 0 4px 24px rgba(79,70,229,0.55) !important;
+        transition: all 0.25s ease !important;
+        animation: jpulse 3s ease-in-out infinite;
+        white-space: nowrap;
+        min-width: 0 !important;
+        width: auto !important;
     }
-    @keyframes jagau-pulse {
-        0%, 100% { box-shadow: 0 4px 24px rgba(79,70,229,0.5); }
-        50%       { box-shadow: 0 4px 32px rgba(79,70,229,0.7); }
+    div.jagau-trigger-wrapper button:hover {
+        transform: translateY(-3px) scale(1.04) !important;
+        box-shadow: 0 8px 32px rgba(79,70,229,0.7) !important;
+    }
+    @keyframes jpulse {
+        0%, 100% { box-shadow: 0 4px 24px rgba(79,70,229,0.55); }
+        50%       { box-shadow: 0 4px 32px rgba(79,70,229,0.75); }
     }
     </style>
+    <div class="jagau-trigger-wrapper" id="jagau-wrapper">
     """, unsafe_allow_html=True)
 
-    # Use Streamlit button — reliable click → dialog
-    # Place at bottom of page, styled to blend with fixed position
-    col = st.columns([6, 1])[1]
-    with col:
-        if st.button("🤖 JaGau", use_container_width=True,
-                     key="jagau_float_btn", type="primary"):
-            chat_dialog(df)
+    clicked = st.button("🤖 Ask JaGau AI", key="jagau_float_btn", type="primary")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if clicked:
+        chat_dialog(df)

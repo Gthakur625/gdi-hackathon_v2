@@ -389,15 +389,15 @@ def render_sidebar_and_get_data():
                 "text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;'>"
                 "📊 Data Source</div>", unsafe_allow_html=True)
 
-    # Auto-set defaults on first session load
+    # Auto-set defaults on first session load — Google Sheet is default
     if "gsheet_url" not in st.session_state:
         st.session_state["gsheet_url"]     = DEFAULT_GSHEET_URL
+        st.session_state["src_choice_idx"] = 0   # Google Sheet tab (default)
     if "metabase_url" not in st.session_state:
         st.session_state["metabase_url"]       = DEFAULT_METABASE_URL
         st.session_state["metabase_api_key"]   = DEFAULT_METABASE_API_KEY
         st.session_state["metabase_auth_type"] = "api_key"
         st.session_state["metabase_qid"]       = DEFAULT_METABASE_QID
-        st.session_state["src_choice_idx"]     = 1   # Metabase tab
 
     # Remember the last selected source across page navigations
     default_src_idx = st.session_state.get("src_choice_idx", 0)

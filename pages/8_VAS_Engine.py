@@ -8,22 +8,42 @@ import pandas as pd
 import numpy as np
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils.styles  import apply_styles
-from utils.sidebar import render_sidebar_and_get_data
-from utils.metrics import compute_kpis, compute_courier_perf, compute_state_perf
+from utils.styles      import apply_styles
+from utils.sidebar     import render_sidebar_and_get_data
+from utils.metrics     import compute_kpis, compute_courier_perf, compute_state_perf
+from utils.chat_widget import render_chat_button
 
 apply_styles()
 
 # ── constants (actual vendor rates) ──────────────────────────────────────────
-AI_CALL_COST_PER_MIN   = 4.00    # ₹4 per minute
-AI_CALL_AVG_DURATION   = 2.0     # minutes per call (IVR average)
-WHATSAPP_COST_PER_MSG  = 0.50    # ₹0.50 per message
-WHATSAPP_MSGS_PER_NDR  = 2       # 2 messages per NDR attempt (initial + follow-up)
-AI_CALLING_RECOVERY    = 0.38    # 38% NDR recovery rate
-WHATSAPP_RECOVERY      = 0.15    # 15% COD NDR recovery rate
+AI_CALL_COST_PER_MIN   = 4.00
+AI_CALL_AVG_DURATION   = 2.0
+WHATSAPP_COST_PER_MSG  = 0.50
+WHATSAPP_MSGS_PER_NDR  = 2
+AI_CALLING_RECOVERY    = 0.38
+WHATSAPP_RECOVERY      = 0.15
 NDR_REFUSE_KEYWORDS    = ["refused","cancel","not responding","unavailable"]
 
-df = render_sidebar_and_get_data()
+df_full = render_sidebar_and_get_data()
+
+# ── Seller filter ─────────────────────────────────────────────────────────────
+all_sellers_vas = sorted(df_full["seller_name"].unique().tolist()) if "seller_name" in df_full.columns else []
+if len(all_sellers_vas) > 1:
+    sel_vas = st.selectbox(
+        "🔍 Select Seller (or view all)",
+        ["📊 All Sellers"] + all_sellers_vas,
+        key="vas_seller_filter",
+        help="Filter VAS recommendations to a specific seller"
+    )
+    df = df_full[df_full["seller_name"] == sel_vas].copy() if sel_vas != "📊 All Sellers" else df_full.copy()
+    if sel_vas != "📊 All Sellers":
+        st.markdown(f"<div style='background:rgba(79,70,229,0.1);border:1px solid rgba(79,70,229,0.3);"
+                    f"border-radius:8px;padding:8px 14px;margin-bottom:8px;color:#818CF8;font-size:0.85rem;font-weight:600;'>"
+                    f"📌 Showing VAS recommendations for: <b>{sel_vas}</b> · {len(df):,} shipments</div>",
+                    unsafe_allow_html=True)
+else:
+    df = df_full.copy()
+
 m  = compute_kpis(df)
 cour_df  = compute_courier_perf(df)
 state_df = compute_state_perf(df)
@@ -664,3 +684,6 @@ st.markdown(
     f'<th style="padding:10px 12px;text-align:left;">Recommended Action</th>'
     f'</tr></thead><tbody>{rows_html}</tbody></table></div>',
     unsafe_allow_html=True)
+
+# ── Floating JaGau AI button ─────────────────────────────────────────────────
+render_chat_button(df)

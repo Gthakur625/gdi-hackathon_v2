@@ -100,6 +100,13 @@ elif hs>=65: sc="#FBBF24"; rl="Medium Risk"; rb='<span class="badge-risk-medium"
 else:        sc="#FCA5A5"; rl="High Risk";   rb='<span class="badge-risk-high">🔴 High Risk</span>'
 total_pot = sum(r["revenue"] for r in recs)
 
+# Pickup date range for the current filtered view
+_date_col = "pickup_date" if "pickup_date" in df.columns else "shipment_date"
+_min_date = pd.to_datetime(df[_date_col]).min()
+_max_date = pd.to_datetime(df[_date_col]).max()
+_date_range_str = (f"{_min_date.strftime('%d %b %Y')} — {_max_date.strftime('%d %b %Y')}"
+                   if pd.notna(_min_date) and pd.notna(_max_date) else "All dates")
+
 # ── NDD zone count (module-level) ────────────────────────────────────────────
 zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
 zone_ab_count = 0
@@ -165,6 +172,9 @@ st.markdown(f"""
     <div>
       <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
                   letter-spacing:0.08em;margin-bottom:4px;">🤖 JaGau AI — Executive Briefing{scope}</div>
+      <div style="color:#6B7280;font-size:0.71rem;margin-top:2px;">
+        📦 Pickup cohort: <b style="color:#9CA3AF;">{_date_range_str}</b> · delivery% calculated on this window
+      </div>
       <div style="color:#FFFFFF;font-size:1.35rem;font-weight:800;line-height:1.2;">
         Status: <span style="color:{sc};">{rl}</span>
         <span style="color:#6B7280;font-size:0.9rem;font-weight:400;margin-left:12px;">
@@ -223,14 +233,14 @@ for col, lbl, val, clr, sub in [
 ]:
     col.markdown(_card(lbl,val,clr,sub), unsafe_allow_html=True)
 
-if pending_count > 0:
-    st.markdown(
-        f'<div style="background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.2);'
-        f'border-radius:8px;padding:8px 14px;font-size:0.82rem;color:#9CA3AF;margin-bottom:10px;">'
-        f'ℹ️ <b style="color:#D1D5DB;">{pending_count:,} shipments</b> are <b>Pending Pickup</b> '
-        f'(courier not yet collected) — excluded from Delivery %. '
-        f'In Transit shipments are included in the denominator.</div>',
-        unsafe_allow_html=True)
+st.markdown(
+    f'<div style="background:rgba(79,70,229,0.06);border:1px solid rgba(79,70,229,0.2);'
+    f'border-radius:8px;padding:8px 14px;font-size:0.8rem;color:#9CA3AF;margin-bottom:10px;">'
+    f'📦 <b style="color:#818CF8;">Pickup Date Range:</b> {_date_range_str} · '
+    f'Delivery% = Delivered ÷ (Delivered + RTO + NDR + In Transit) for this cohort'
+    + (f' · <b style="color:#6B7280;">{pending_count:,} Pending Pickup excluded</b>' if pending_count > 0 else '')
+    + '</div>',
+    unsafe_allow_html=True)
 
 # ── AGENTIC OPERATIONS CONSULTANT ────────────────────────────────────────────
 st.markdown("<div class='section-title'>🤖 GDI Agentic Operations Consultant</div>",
