@@ -10,7 +10,6 @@ st.set_page_config(
 pages = [
     st.Page("pages/0_GDI_Dashboard.py",   title="JaGau Briefing",   icon="🤖", default=True),
     st.Page("pages/7_GDI_Consultant.py",  title="JaGau AI",          icon="💬"),
-    st.Page("pages/8_VAS_Engine.py",      title="VAS Engine",         icon="⚙️"),
 ]
 pg = st.navigation(pages)
 pg.run()
