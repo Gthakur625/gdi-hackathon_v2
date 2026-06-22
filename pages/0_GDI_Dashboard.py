@@ -1,5 +1,5 @@
 """
-JAGGU AI — GDI Dashboard
+JaGau AI — GDI Dashboard
 From Insight to Action.
 """
 import streamlit as st
@@ -23,7 +23,7 @@ apply_styles()
 
 st.markdown("""
 <style>
-/* ── JAGGU Briefing card ── */
+/* ── JaGau Briefing card ── */
 .jaggu-brief { background:linear-gradient(135deg,#0F0A1E 0%,#111827 100%);
     border:1px solid rgba(79,70,229,0.4);border-radius:16px;padding:24px 28px;margin-bottom:20px; }
 .jaggu-section-lbl { font-size:0.68rem;font-weight:700;text-transform:uppercase;
@@ -50,16 +50,16 @@ is_admin    = len(all_sellers) > 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SELLER + DATE SELECTION  (the only two inputs JAGGU needs)
+# SELLER + DATE SELECTION  (the only two inputs JaGau needs)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <div style="margin-bottom:16px;">
   <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
-              letter-spacing:0.08em;margin-bottom:6px;">🤖 JAGGU AI</div>
+              letter-spacing:0.08em;margin-bottom:6px;">🤖 JaGau AI</div>
   <div style="color:#FFFFFF;font-size:1.6rem;font-weight:800;line-height:1.2;">
     From Insight to Action.</div>
   <div style="color:#6B7280;font-size:0.88rem;margin-top:4px;">
-    Select a seller — JAGGU instantly generates their health briefing, risks, opportunities and recommended actions.
+    Select a seller — JaGau instantly generates their health briefing, risks, opportunities and recommended actions.
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -132,7 +132,7 @@ _period = (f"{_min_d.strftime('%d %b')} – {_max_d.strftime('%d %b %Y')}"
            if pd.notna(_min_d) else "All dates")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BUILD JAGGU BRIEFING  — Risks / Opportunities / Actions
+# BUILD JaGau BRIEFING  — Risks / Opportunities / Actions
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Risks (max 4, ranked by severity) ────────────────────────────────────────
@@ -208,7 +208,7 @@ delivery_gain  = round(min(12, m["ndr_pct"]*0.38*0.3 + (best_c_dr-m["delivery_pc
 rto_reduction  = round(min(10, m["rto_pct"]*0.15), 1)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RENDER JAGGU BRIEFING CARD
+# RENDER JaGau BRIEFING CARD
 # ══════════════════════════════════════════════════════════════════════════════
 scope_label = f"— {selected_seller}" if (is_admin and selected_seller != "📊 All Sellers") else ""
 
@@ -224,7 +224,7 @@ st.markdown(f"""
     <div>
       <div style="color:#818CF8;font-size:0.7rem;font-weight:700;text-transform:uppercase;
                   letter-spacing:0.08em;margin-bottom:4px;">
-        🤖 JAGGU AI Briefing {scope_label}</div>
+        🤖 JaGau AI Briefing {scope_label}</div>
       <div style="color:#6B7280;font-size:0.72rem;">
         Period: <b style="color:#9CA3AF;">{_period}</b> ·
         {m['total']:,} shipments · {m['delivered']:,} delivered of {att:,} attempted
