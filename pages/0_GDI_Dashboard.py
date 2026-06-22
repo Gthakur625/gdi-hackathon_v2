@@ -1,624 +1,419 @@
+"""
+JAGGU AI — GDI Dashboard
+From Insight to Action.
+"""
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-import sys, os
+import sys, os, random, string
+from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils.styles               import apply_styles
-from utils.sidebar              import render_sidebar_and_get_data
-from utils.chat_widget          import render_chat_button
-from utils.seller_intelligence  import render_seller_intelligence
-from utils.agent_ops            import render_agent_ops
-from utils.recommendations      import (detect_courier_concentration,
-                                        build_velocity_recommendations, NDD_COURIERS)
+from utils.styles          import apply_styles
+from utils.sidebar         import render_sidebar_and_get_data
+from utils.chat_widget     import render_chat_button
+from utils.recommendations import (detect_courier_concentration,
+                                   build_velocity_recommendations, NDD_COURIERS)
 from utils.metrics import (compute_kpis, compute_health_score, compute_vas_adoption_score,
                            compute_courier_perf, compute_state_perf, get_recommendations,
                            get_anomalies)
 
 apply_styles()
+
+st.markdown("""
+<style>
+/* ── JAGGU Briefing card ── */
+.jaggu-brief { background:linear-gradient(135deg,#0F0A1E 0%,#111827 100%);
+    border:1px solid rgba(79,70,229,0.4);border-radius:16px;padding:24px 28px;margin-bottom:20px; }
+.jaggu-section-lbl { font-size:0.68rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:0.1em;margin-bottom:8px; }
+.risk-item  { padding:8px 12px;border-radius:8px;margin-bottom:6px;
+    background:rgba(248,113,113,0.08);border-left:3px solid #F87171;
+    font-size:0.85rem;color:#D1D5DB;line-height:1.4; }
+.opp-item   { padding:8px 12px;border-radius:8px;margin-bottom:6px;
+    background:rgba(52,211,153,0.08);border-left:3px solid #34D399;
+    font-size:0.85rem;color:#D1D5DB;line-height:1.4; }
+.action-item{ padding:10px 14px;border-radius:8px;margin-bottom:8px;
+    background:#111827;border:1px solid #1F2937;
+    font-size:0.85rem;color:#D1D5DB;line-height:1.5; }
+.impact-pill{ display:inline-block;padding:4px 12px;border-radius:99px;
+    font-size:0.78rem;font-weight:700;margin:3px; }
+.exec-done  { background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);
+    border-radius:8px;padding:10px 14px;color:#34D399;font-size:0.82rem;font-weight:600; }
+</style>""", unsafe_allow_html=True)
+
+# ── Load data ─────────────────────────────────────────────────────────────────
 df_full = render_sidebar_and_get_data()
-
-# ── shared chart base (NO showlegend / coloraxis keys — set per chart) ────────
-def _fig(h=280):
-    return dict(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#F3F4F6", height=h,
-        margin=dict(l=0, r=0, t=42, b=0),
-    )
-
-def _card(label, value, color, sub=""):
-    return (f'<div class="saas-card" style="text-align:center;padding:14px 8px;">'
-            f'<div class="metric-label">{label}</div>'
-            f'<div class="metric-value" style="color:{color};font-size:1.4rem;">{value}</div>'
-            f'{"<div style=color:#9CA3AF;font-size:0.73rem;margin-top:3px;>" + sub + "</div>" if sub else ""}'
-            f'</div>')
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SELLER AUTOCOMPLETE SEARCH (admin view — when multiple sellers loaded)
-# ══════════════════════════════════════════════════════════════════════════════
 all_sellers = sorted(df_full["seller_name"].unique().tolist()) if "seller_name" in df_full.columns else []
 is_admin    = len(all_sellers) > 1
 
-# Header
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SELLER + DATE SELECTION  (the only two inputs JAGGU needs)
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
-<div class="header-card">
-  <h1 class="header-title">⚡ Velocity GDI — Growth & Delivery Intelligence</h1>
-  <p class="header-subtitle">Powered by JaGau AI · Your AI KAM & Operations Expert</p>
+<div style="margin-bottom:16px;">
+  <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:0.08em;margin-bottom:6px;">🤖 JAGGU AI</div>
+  <div style="color:#FFFFFF;font-size:1.6rem;font-weight:800;line-height:1.2;">
+    From Insight to Action.</div>
+  <div style="color:#6B7280;font-size:0.88rem;margin-top:4px;">
+    Select a seller — JAGGU instantly generates their health briefing, risks, opportunities and recommended actions.
+  </div>
 </div>""", unsafe_allow_html=True)
 
-# Seller search bar (only when multiple sellers)
-if is_admin:
-    col_search, col_info = st.columns([3, 2])
-    with col_search:
+col_sel, col_info = st.columns([3, 2])
+with col_sel:
+    if is_admin:
         selected_seller = st.selectbox(
-            "🔍 Select Seller / Client (type to search)",
+            "Select Seller / Client",
             ["📊 All Sellers"] + all_sellers,
-            index=0,
-            help="Start typing seller name to filter",
+            key="dash_seller",
+            label_visibility="collapsed",
         )
-    with col_info:
-        if selected_seller != "📊 All Sellers":
-            seller_count = len(df_full[df_full["seller_name"] == selected_seller])
-            st.markdown(f"""
-            <div style="background:rgba(79,70,229,0.12);border:1px solid rgba(79,70,229,0.3);
-                        border-radius:10px;padding:12px 16px;margin-top:4px;">
-              <span style="color:#818CF8;font-weight:700;">📌 {selected_seller}</span>
-              <span style="color:#9CA3AF;font-size:0.82rem;margin-left:8px;">
-                · {seller_count:,} shipments</span>
-            </div>""", unsafe_allow_html=True)
-
-    # Filter df based on selection
-    if selected_seller != "📊 All Sellers":
-        df = df_full[df_full["seller_name"] == selected_seller].copy()
     else:
-        df = df_full.copy()
+        selected_seller = all_sellers[0] if all_sellers else "All"
+        st.markdown(f"<div style='color:#818CF8;font-size:0.9rem;font-weight:600;padding:8px 0;'>"
+                    f"📌 {selected_seller}</div>", unsafe_allow_html=True)
+
+with col_info:
+    # Show pickup date range
+    _dc = "pickup_date" if "pickup_date" in df_full.columns else "shipment_date"
+    _mn = pd.to_datetime(df_full[_dc]).min()
+    _mx = pd.to_datetime(df_full[_dc]).max()
+    _rng = f"{_mn.strftime('%d %b')} – {_mx.strftime('%d %b %Y')}" if pd.notna(_mn) else "All dates"
+    st.markdown(
+        f'<div style="background:#111827;border:1px solid #1F2937;border-radius:8px;'
+        f'padding:10px 14px;font-size:0.82rem;color:#9CA3AF;">'
+        f'📦 Pickup cohort: <b style="color:#D1D5DB;">{_rng}</b><br>'
+        f'<span style="font-size:0.75rem;">Delivery% = Delivered ÷ Attempted in this window</span>'
+        f'</div>', unsafe_allow_html=True)
+
+# Apply seller filter
+if is_admin and selected_seller != "📊 All Sellers":
+    df = df_full[df_full["seller_name"] == selected_seller].copy()
 else:
     df = df_full.copy()
-    selected_seller = all_sellers[0] if all_sellers else "All"
 
-# ══════════════════════════════════════════════════════════════════════════════
-# METRICS
-# ══════════════════════════════════════════════════════════════════════════════
-m          = compute_kpis(df)
+# ── Compute metrics ───────────────────────────────────────────────────────────
+m       = compute_kpis(df)
 m["vas_adoption_score"] = compute_vas_adoption_score(df)
-hs         = compute_health_score(m)
-recs       = get_recommendations(m)
-state_perf = compute_state_perf(df)
-cour_perf  = compute_courier_perf(df)
-anomalies  = get_anomalies(df, m, state_perf, cour_perf)
+hs      = compute_health_score(m)
+cour_df = compute_courier_perf(df)
+state_df= compute_state_perf(df)
+recs    = get_recommendations(m)
+conc    = detect_courier_concentration(df)
+m["courier_concentration"] = conc.get("is_concentrated", False)
+vel     = build_velocity_recommendations(df, m, cour_df, conc)
 
-cod_df     = df[df["payment_type"]=="COD"]
-prepaid_df = df[df["payment_type"]=="Prepaid"]
-cod_rto    = len(cod_df[cod_df["delivery_status"]=="RTO"])       / max(len(cod_df),1)    * 100
-prep_rto   = len(prepaid_df[prepaid_df["delivery_status"]=="RTO"]) / max(len(prepaid_df),1) * 100
-ndr_cod    = df[(df["payment_type"]=="COD") & (df["ndr_status"]=="Raised")] \
-             if "ndr_status" in df.columns else pd.DataFrame()
+_has_cour  = len(cour_df) > 0
+_has_state = len(state_df) > 0
+best_c  = cour_df.sort_values("delivery_rate", ascending=False).iloc[0] if _has_cour  else None
+worst_c = cour_df.sort_values("delivery_rate").iloc[0]                  if _has_cour  else None
+worst_st= state_df.sort_values("rto_rate", ascending=False).iloc[0]     if _has_state else None
+def _cv(row, key, default="N/A"): return row[key] if row is not None else default
+best_c_name = _cv(best_c, "courier"); best_c_dr  = _cv(best_c,  "delivery_rate", 0)
+worst_c_name= _cv(worst_c,"courier"); worst_c_dr = _cv(worst_c, "delivery_rate", 0)
+worst_st_name=_cv(worst_st,"state");  worst_st_rr= _cv(worst_st,"rto_rate", 0)
 
-if hs>=80:   sc="#34D399"; rl="Low Risk";    rb='<span class="badge-risk-low">🟢 Low Risk</span>'
-elif hs>=65: sc="#FBBF24"; rl="Medium Risk"; rb='<span class="badge-risk-medium">🟡 Medium Risk</span>'
-else:        sc="#FCA5A5"; rl="High Risk";   rb='<span class="badge-risk-high">🔴 High Risk</span>'
-total_pot = sum(r["revenue"] for r in recs)
+cod_df   = df[df["payment_type"]=="COD"]
+prep_df  = df[df["payment_type"]=="Prepaid"]
+cod_rto  = len(cod_df[cod_df["delivery_status"]=="RTO"]) / max(len(cod_df), 1) * 100
+prep_rto = len(prep_df[prep_df["delivery_status"]=="RTO"])/ max(len(prep_df),1) * 100
+att      = m.get("attempted_total", m["total"])
+pending  = m.get("pending_count", 0)
 
-# Pickup date range for the current filtered view
+# ── Date range string ─────────────────────────────────────────────────────────
 _date_col = "pickup_date" if "pickup_date" in df.columns else "shipment_date"
-_min_date = pd.to_datetime(df[_date_col]).min()
-_max_date = pd.to_datetime(df[_date_col]).max()
-_date_range_str = (f"{_min_date.strftime('%d %b %Y')} — {_max_date.strftime('%d %b %Y')}"
-                   if pd.notna(_min_date) and pd.notna(_max_date) else "All dates")
+_min_d = pd.to_datetime(df[_date_col]).min()
+_max_d = pd.to_datetime(df[_date_col]).max()
+_period = (f"{_min_d.strftime('%d %b')} – {_max_d.strftime('%d %b %Y')}"
+           if pd.notna(_min_d) else "All dates")
 
-# ── NDD zone count (module-level) ────────────────────────────────────────────
-zone_col = next((c for c in ["zone","standard_zone","Zone"] if c in df.columns), None)
-zone_ab_count = 0
-if zone_col:
-    zone_ab_count = int(df[df[zone_col].astype(str).str.upper().isin(["A","B"])].shape[0])
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILD JAGGU BRIEFING  — Risks / Opportunities / Actions
+# ══════════════════════════════════════════════════════════════════════════════
 
-# ── Courier concentration (module-level — used in briefing card AND footer) ──
-conc = detect_courier_concentration(df)
-vel  = build_velocity_recommendations(df, m, cour_perf, conc)
-
-# ── AI EXECUTIVE BRIEFING (module-level, no function) ────────────────────────
-risks, opps, actions = [], [], []
-
-# Risks
+# ── Risks (max 4, ranked by severity) ────────────────────────────────────────
+risks = []
+if m["ndr_pct"] > 20:
+    pin_ndr_count = 0
+    if "pincode" in df.columns and "ndr_status" in df.columns:
+        pg = df.groupby("pincode").agg(ndr=("ndr_status", lambda x:(x=="Raised").sum()),
+                                       total=("delivery_status","count")).reset_index()
+        pg["nr"] = pg["ndr"]/pg["total"].clip(lower=1)*100
+        pin_ndr_count = int((pg["nr"]>20).sum())
+    risks.append({
+        "icon":"🚨","label":"High NDR",
+        "detail": f"{m['ndr_count']:,} active NDRs ({m['ndr_pct']:.0f}% of shipments)"
+                  + (f" · {pin_ndr_count} high-NDR pincodes" if pin_ndr_count else ""),
+    })
 if m["rto_pct"] > 20:
-    risks.append(f"🚨 RTO at <b style='color:#F87171;'>{m['rto_pct']:.1f}%</b> — above 20% threshold")
-if m["cod_pct"] > 65:
-    risks.append(f"⚠️ COD at <b style='color:#C084FC;'>{m['cod_pct']:.1f}%</b> — high fake-order risk")
-if m["ndr_pct"] > 15:
-    risks.append(f"⚠️ NDR backlog <b style='color:#FBBF24;'>{m['ndr_count']:,}</b> shipments unresolved")
-if len(state_perf) > 0:
-    _ws = state_perf.sort_values("rto_rate", ascending=False).iloc[0]
-    if _ws["rto_rate"] > 30:
-        risks.append(f"🚨 <b>{_ws['state']}</b> — {_ws['rto_rate']:.0f}% RTO, your biggest hotspot")
-if len(cour_perf) > 0:
-    _wc = cour_perf.sort_values("delivery_rate").iloc[0]
-    if _wc["delivery_rate"] < 70:
-        risks.append(f"⚠️ <b>{_wc['courier']}</b> delivering only {_wc['delivery_rate']:.0f}%")
+    risks.append({
+        "icon":"⚠️","label":"High RTO",
+        "detail": f"{m['rto_count']:,} RTOs ({m['rto_pct']:.0f}%) · "
+                  + (f"{worst_st_name} worst state at {worst_st_rr:.0f}%" if _has_state else "multiple states"),
+    })
+if m["cod_pct"] > 70:
+    risks.append({
+        "icon":"⚠️","label":"COD Concentration Risk",
+        "detail": f"{m['cod_pct']:.0f}% COD share · COD-RTO at {cod_rto:.0f}% vs Prepaid {prep_rto:.0f}%",
+    })
 if conc.get("is_concentrated"):
-    risks.append(f"⚠️ <b>Courier Concentration Risk</b> — {conc['dominant_pct']:.0f}% on {conc['dominant_courier']}")
+    risks.append({
+        "icon":"⚠️","label":"Courier Concentration Risk",
+        "detail": f"{conc['dominant_pct']:.0f}% volume on {conc['dominant_courier']} alone · single point of failure",
+    })
+if _has_cour and worst_c_dr < (m["delivery_pct"] - 10):
+    risks.append({
+        "icon":"⚠️","label":f"Courier Underperformance — {worst_c_name}",
+        "detail": f"Delivering only {worst_c_dr:.0f}% vs fleet avg {m['delivery_pct']:.0f}% · {int(_cv(worst_c,'total',0)):,} shipments affected",
+    })
 if not risks:
-    risks.append("✅ No critical risks detected in current period")
+    risks.append({"icon":"✅","label":"No Critical Risks","detail":"Operations within healthy thresholds."})
 
-# Opportunities (Velocity-first)
-_icon_map = {"AI Calling":"📞","WhatsApp NDR":"💬","Order Confirmation Via AI":"✅",
-             "NDR Automation":"🔄","Courier Optimization":"🚚",
-             "Shipping Rule Optimization":"📋","Pincode Optimization":"📍",
-             "Multi-Courier Allocation":"⚠️","NDD Courier Activation":"🚀"}
-for r in vel[:4]:
-    opps.append(f"{_icon_map.get(r['name'],'💡')} <b>{r['name']}</b> — {r['metric']}")
+# ── Opportunities (max 4) ─────────────────────────────────────────────────────
+opps = []
+if m["ndr_count"] > 10:
+    rec = int(m["ndr_count"]*0.38)
+    opps.append({"icon":"📞","label":"AI Calling — NDR Recovery",
+                 "detail":f"~{rec:,} shipments recoverable at 38% rate · cost ₹{int(m['ndr_count']*8):,}"})
+if m["cod_pct"] > 50 and m["ndr_pct"] > 10:
+    sv = int(m["rto_count"]*0.08)
+    opps.append({"icon":"💬","label":"WhatsApp AI NDR",
+                 "detail":f"~{sv:,} COD RTOs preventable · cost ₹{int(m['ndr_count']*1):,}"})
+if _has_cour and (best_c_dr - worst_c_dr) > 8:
+    extra = int(_cv(worst_c,"total",0) * 0.4 * (best_c_dr - worst_c_dr) / 100)
+    opps.append({"icon":"🚚","label":"Courier Optimization",
+                 "detail":f"Shift 40% of {worst_c_name} volume to {best_c_name} → ~{extra:,} extra deliveries"})
+if m["rto_pct"] > 15:
+    sv = int(m["rto_count"]*0.12)
+    opps.append({"icon":"✅","label":"Order Confirmation Via AI",
+                 "detail":f"~{sv:,} fake/impulsive COD orders blocked pre-dispatch"})
 if not opps:
-    opps.append("✅ Operations healthy — focus on NDD activation for Zone A/B")
+    opps.append({"icon":"🚀","label":"NDD Activation",
+                 "detail":"Activate ElasticRun / PiknDel / Blitz for Zone A/B next-day delivery"})
 
-# Actions
-for i, r in enumerate(vel[:3], 1):
-    actions.append(f"<b>#{i}</b> <b>{r['name']}</b> — {r['impact']}")
-if not actions:
-    actions.append("<b>#1</b> Maintain current VAS stack and monitor NDR age daily")
+# ── Actions (data-backed, specific) ──────────────────────────────────────────
+actions = []
+for i, v in enumerate(vel[:5], 1):
+    actions.append({"rank": i, "name": v["name"], "detail": v["impact"], "metric": v["metric"],
+                    "key": f"exec_{i}_{selected_seller[:8].replace(' ','_')}"})
 
-risks   = risks[:4]
-opps    = opps[:4]
-actions = actions[:3]
+# ── Expected impact totals ────────────────────────────────────────────────────
+total_recoverable = (int(m["ndr_count"]*0.38) + int(m["rto_count"]*0.08)
+                     + int(m["rto_count"]*0.12))
+delivery_gain  = round(min(12, m["ndr_pct"]*0.38*0.3 + (best_c_dr-m["delivery_pct"])*0.2), 1) if _has_cour else 3.5
+rto_reduction  = round(min(10, m["rto_pct"]*0.15), 1)
 
-def _bullet(items, color="#D1D5DB"):
-    return "".join(f'<div style="padding:4px 0;border-bottom:1px solid #1F2937;font-size:0.82rem;color:{color};">{it}</div>' for it in items)
+# ══════════════════════════════════════════════════════════════════════════════
+# RENDER JAGGU BRIEFING CARD
+# ══════════════════════════════════════════════════════════════════════════════
+scope_label = f"— {selected_seller}" if (is_admin and selected_seller != "📊 All Sellers") else ""
 
-scope = f" — {selected_seller}" if (is_admin and selected_seller != "📊 All Sellers") else ""
-
-# Build footer meta string safely outside f-string to avoid nested interpolation bugs
-_ndd_note   = f" · 🚀 {zone_ab_count:,} Zone A/B — NDD via ElasticRun/PiknDel/Blitz" if zone_ab_count > 0 else ""
-_conc_note  = (f" · ⚠️ Courier concentration on {conc['dominant_courier']} ({conc['dominant_pct']:.0f}%)"
-               if conc.get("is_concentrated") else "")
-_footer_meta = (f"{m['total']:,} shipments · COD {m['cod_pct']:.0f}% · NDR {m['ndr_count']:,}"
-                f" · Avg ₹{m['avg_order_value']:,.0f} · {len(cour_perf)} couriers active"
-                f"{_ndd_note}{_conc_note}")
+# Health score colour + label
+if hs >= 80:   hs_col="#34D399"; hs_lbl="Healthy";     hs_icon="🟢"
+elif hs >= 65: hs_col="#FBBF24"; hs_lbl="Needs Attention"; hs_icon="🟡"
+else:          hs_col="#F87171"; hs_lbl="At Risk";      hs_icon="🔴"
 
 st.markdown(f"""
-<div style="background:linear-gradient(135deg,#0F172A 0%,#111827 100%);
-     border:1px solid #1F2937;border-radius:16px;padding:20px 24px;margin-bottom:18px;
-     border-left:4px solid #818CF8;">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
-    <div>
-      <div style="color:#818CF8;font-size:0.72rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.08em;margin-bottom:4px;">🤖 JaGau AI — Executive Briefing{scope}</div>
-      <div style="color:#6B7280;font-size:0.71rem;margin-top:2px;">
-        📦 Pickup cohort: <b style="color:#9CA3AF;">{_date_range_str}</b> · delivery% calculated on this window
-      </div>
-      <div style="color:#FFFFFF;font-size:1.35rem;font-weight:800;line-height:1.2;">
-        Status: <span style="color:{sc};">{rl}</span>
-        <span style="color:#6B7280;font-size:0.9rem;font-weight:400;margin-left:12px;">
-          {m['delivered']:,} delivered of {m['attempted_total']:,} attempted</span>
-      </div>
-    </div>
-    <div style="text-align:center;background:#0B0F19;border-radius:12px;padding:10px 20px;min-width:110px;">
-      <div style="font-size:2rem;font-weight:800;color:#818CF8;line-height:1;">{hs:.0f}</div>
-      <div style="font-size:0.7rem;color:#6B7280;text-transform:uppercase;">/100 Health</div>
-      <div style="margin-top:4px;">{rb}</div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
-    <div>
-      <div style="color:#F87171;font-size:0.7rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.06em;margin-bottom:6px;">⚡ Top Risks</div>
-      {_bullet(risks)}
-    </div>
-    <div>
-      <div style="color:#34D399;font-size:0.7rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.06em;margin-bottom:6px;">💰 Opportunities</div>
-      {_bullet(opps)}
-    </div>
+<div class="jaggu-brief">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;
+              flex-wrap:wrap;gap:12px;margin-bottom:20px;">
     <div>
       <div style="color:#818CF8;font-size:0.7rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.06em;margin-bottom:6px;">✅ Recommended Actions</div>
-      {_bullet(actions)}
+                  letter-spacing:0.08em;margin-bottom:4px;">
+        🤖 JAGGU AI Briefing {scope_label}</div>
+      <div style="color:#6B7280;font-size:0.72rem;">
+        Period: <b style="color:#9CA3AF;">{_period}</b> ·
+        {m['total']:,} shipments · {m['delivered']:,} delivered of {att:,} attempted
+        {"· " + str(pending) + " Pending Pickup excluded" if pending > 0 else ""}
+      </div>
+    </div>
+    <div style="background:#0B0F19;border-radius:12px;padding:10px 20px;text-align:center;min-width:140px;">
+      <div style="color:#6B7280;font-size:0.68rem;text-transform:uppercase;font-weight:600;">Seller Health</div>
+      <div style="font-size:2.4rem;font-weight:800;color:{hs_col};line-height:1.1;">{hs:.0f}</div>
+      <div style="font-size:0.72rem;color:{hs_col};font-weight:700;">{hs_icon} {hs_lbl}</div>
     </div>
   </div>
-  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1F2937;
-              display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-    <div style="font-size:0.78rem;color:#6B7280;">
-      {_footer_meta}
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+    <div>
+      <div class="jaggu-section-lbl" style="color:#F87171;">⚡ TOP RISKS</div>
+      {"".join(f'<div class="risk-item"><b style="color:#F87171;">{r["icon"]} {r["label"]}</b><br>{r["detail"]}</div>' for r in risks[:3])}
     </div>
-    <div style="font-size:0.78rem;color:#34D399;font-weight:600;">
-      💰 Total revenue unlock: ₹{total_pot:,}
+    <div>
+      <div class="jaggu-section-lbl" style="color:#34D399;">💰 TOP OPPORTUNITIES</div>
+      {"".join(f'<div class="opp-item"><b style="color:#34D399;">{o["icon"]} {o["label"]}</b><br>{o["detail"]}</div>' for o in opps[:3])}
+    </div>
+  </div>
+
+  <div style="border-top:1px solid #1F2937;padding-top:16px;margin-bottom:16px;">
+    <div class="jaggu-section-lbl" style="color:#818CF8;">✅ RECOMMENDED ACTIONS</div>
+    {"".join(f'<div class="action-item"><b style="color:#FFFFFF;">#{a["rank"]}. {a["name"]}</b><br>{a["detail"]}<br><span style="color:#818CF8;font-size:0.78rem;">→ {a["metric"]}</span></div>' for a in actions[:4])}
+  </div>
+
+  <div style="background:#0B0F19;border-radius:10px;padding:14px 18px;margin-bottom:16px;
+              display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <div>
+      <div style="color:#6B7280;font-size:0.7rem;text-transform:uppercase;font-weight:600;margin-bottom:4px;">
+        Expected Impact (if all actions activated)</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <span class="impact-pill" style="background:rgba(52,211,153,0.12);color:#34D399;">
+          📈 +{delivery_gain:.1f}% Delivery Rate</span>
+        <span class="impact-pill" style="background:rgba(248,113,113,0.12);color:#F87171;">
+          📉 -{rto_reduction:.1f}% RTO Rate</span>
+        <span class="impact-pill" style="background:rgba(129,140,248,0.12);color:#818CF8;">
+          📞 ~{total_recoverable:,} shipments recoverable</span>
+      </div>
     </div>
   </div>
 </div>""", unsafe_allow_html=True)
 
-# KPI row
-c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
-pending_count = m.get("pending_count", 0)
-for col, lbl, val, clr, sub in [
-    (c1,"Delivery %",     f"{m['delivery_pct']:.1f}%", "#34D399",
-     f"{m['delivered']:,} of {m['attempted_total']:,} attempted"),
-    (c2,"RTO Rate",       f"{m['rto_pct']:.1f}%",      "#F87171", f"{m['rto_count']:,} returned"),
-    (c3,"NDR Active",     f"{m['ndr_count']:,}",        "#FBBF24", "needs resolution"),
-    (c4,"Pending Pickup",  f"{pending_count:,}",         "#6B7280", "not collected · excluded from %"),
-    (c5,"COD Share",      f"{m['cod_pct']:.1f}%",       "#C084FC", f"₹{m['avg_order_value']:,.0f} avg order"),
-    (c6,"Couriers",       f"{len(cour_perf)}",          "#818CF8", "3PL partners"),
-    (c7,"VAS Unlock",     f"₹{total_pot:,}",            "#34D399", "revenue potential"),
-]:
-    col.markdown(_card(lbl,val,clr,sub), unsafe_allow_html=True)
-
-st.markdown(
-    f'<div style="background:rgba(79,70,229,0.06);border:1px solid rgba(79,70,229,0.2);'
-    f'border-radius:8px;padding:8px 14px;font-size:0.8rem;color:#9CA3AF;margin-bottom:10px;">'
-    f'📦 <b style="color:#818CF8;">Pickup Date Range:</b> {_date_range_str} · '
-    f'Delivery% = Delivered ÷ (Delivered + RTO + NDR + In Transit) for this cohort'
-    + (f' · <b style="color:#6B7280;">{pending_count:,} Pending Pickup excluded</b>' if pending_count > 0 else '')
-    + '</div>',
-    unsafe_allow_html=True)
-
-# ── AGENTIC OPERATIONS CONSULTANT ────────────────────────────────────────────
-st.markdown("<div class='section-title'>🤖 GDI Agentic Operations Consultant</div>",
+# ── Approve & Execute buttons ─────────────────────────────────────────────────
+st.markdown("<div style='color:#9CA3AF;font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+            "letter-spacing:0.08em;margin-bottom:10px;'>⚡ AGENTIC EXECUTION — APPROVE ACTIONS</div>",
             unsafe_allow_html=True)
-render_agent_ops(df, m, cour_perf, state_perf)
 
-# Anomalies
-if anomalies:
-    st.markdown("<div class='section-title'>🔍 GDI Detected Issues</div>", unsafe_allow_html=True)
-    lvl = {"critical":"anomaly-critical","warning":"anomaly-warning","info":"anomaly-info"}
-    for a in anomalies[:3]:
-        st.markdown(f"""<div class="{lvl.get(a['level'],'anomaly-info')}">
-          <strong style="color:#FFFFFF;">{a['icon']} {a['title']}</strong>
-          <p style="color:#9CA3AF;margin:6px 0;font-size:0.87rem;">{a['detail']}</p>
-          <span style="color:#818CF8;font-size:0.82rem;font-weight:600;">→ {a['fix']}</span>
-        </div>""", unsafe_allow_html=True)
+exec_cols = st.columns(min(len(actions), 4))
+for i, action in enumerate(actions[:4]):
+    with exec_cols[i]:
+        sk = f"approved_{action['key']}"
+        if st.session_state.get(sk):
+            st.markdown(f"""<div class="exec-done">
+              ✅ <b>{action['name']}</b><br>
+              <span style="font-size:0.75rem;color:#6B7280;">Approved · Ticket #{st.session_state[sk]}</span>
+            </div>""", unsafe_allow_html=True)
+        else:
+            if st.button(f"▶ Approve #{action['rank']}: {action['name'][:20]}",
+                         key=f"btn_approve_{i}_{selected_seller[:8]}",
+                         use_container_width=True, type="primary"):
+                ticket = "GDI-" + "".join(random.choices(string.digits, k=5))
+                st.session_state[sk] = ticket
+                st.rerun()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# COD vs PREPAID
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div class='section-title'>💳 COD vs Prepaid Analysis</div>", unsafe_allow_html=True)
-st.markdown("<p style='color:#9CA3AF;font-size:0.83rem;margin:-8px 0 12px;'>Use this to decide where to activate WhatsApp AI NDR and Order Confirmation Via AI.</p>", unsafe_allow_html=True)
+# Create all tasks button
+st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+if st.button("📋 Create All Action Tasks", key="create_all_tasks", use_container_width=False):
+    task_id = "TASK-" + "".join(random.choices(string.digits, k=5))
+    st.markdown(f"""<div style="background:rgba(129,140,248,0.08);border:1px solid rgba(129,140,248,0.3);
+                    border-radius:8px;padding:10px 14px;margin-top:8px;font-size:0.82rem;color:#818CF8;">
+      ✅ <b>{len(actions[:4])} tasks created</b> · Ref: {task_id}
+      · Due: {(datetime.now()+timedelta(hours=4)).strftime("%d %b, %I:%M %p")}</div>""",
+                unsafe_allow_html=True)
 
-r1c1,r1c2,r1c3,r1c4 = st.columns(4)
-diff = cod_rto - prep_rto
-r1c1.markdown(_card("COD Shipments",    f"{m['cod_count']:,}",           "#F87171", f"{m['cod_pct']:.1f}% of total"), unsafe_allow_html=True)
-r1c2.markdown(_card("Prepaid Shipments",f"{m['total']-m['cod_count']:,}","#34D399", f"{100-m['cod_pct']:.1f}% of total"), unsafe_allow_html=True)
-r1c3.markdown(_card("COD RTO Rate",     f"{cod_rto:.1f}%",              "#F87171", f"+{diff:.1f}% vs Prepaid"), unsafe_allow_html=True)
-r1c4.markdown(_card("Prepaid RTO Rate", f"{prep_rto:.1f}%",             "#34D399", "lower risk"), unsafe_allow_html=True)
-
-cp1,cp2,cp3 = st.columns([1.2,1.5,1.3])
-with cp1:
-    fig_d = go.Figure(go.Pie(
-        labels=["COD","Prepaid"],
-        values=[m["cod_count"], m["total"]-m["cod_count"]],
-        hole=0.60, marker_colors=["#F87171","#34D399"],
-        textinfo="label+percent", textfont=dict(color="#F3F4F6",size=11),
-        hovertemplate="%{label}: %{value:,}<extra></extra>",
-    ))
-    fig_d.update_layout(**_fig(240), showlegend=False,
-        annotations=[dict(text=f"<b>{m['cod_pct']:.0f}%</b><br>COD",
-                          x=0.5,y=0.5,font_size=16,font_color="#F87171",showarrow=False)])
-    st.markdown("<p style='color:#9CA3AF;font-size:0.75rem;font-weight:600;margin:0 0 3px;'>PAYMENT MIX</p>", unsafe_allow_html=True)
-    st.plotly_chart(fig_d, use_container_width=True)
-
-with cp2:
-    fig_cp = go.Figure()
-    fig_cp.add_trace(go.Bar(name="Delivery %", x=["COD","Prepaid"], y=[100-cod_rto,100-prep_rto],
-        marker_color=["#F87171","#34D399"], text=[f"{100-cod_rto:.1f}%",f"{100-prep_rto:.1f}%"],
-        textposition="auto", width=0.4))
-    fig_cp.add_trace(go.Bar(name="RTO %", x=["COD","Prepaid"], y=[cod_rto,prep_rto],
-        marker_color=["rgba(248,113,113,0.4)","rgba(52,211,153,0.4)"],
-        text=[f"{cod_rto:.1f}%",f"{prep_rto:.1f}%"], textposition="auto", width=0.4))
-    fig_cp.update_layout(**_fig(240), barmode="group", showlegend=True,
-        legend=dict(font_color="#9CA3AF",bgcolor="rgba(0,0,0,0)",orientation="h",y=1.15,x=0),
-        yaxis=dict(gridcolor="#1F2937",ticksuffix="%"), xaxis=dict(showgrid=False))
-    st.markdown("<p style='color:#9CA3AF;font-size:0.75rem;font-weight:600;margin:0 0 3px;'>DELIVERY vs RTO BY PAYMENT TYPE</p>", unsafe_allow_html=True)
-    st.plotly_chart(fig_cp, use_container_width=True)
-
-with cp3:
-    cc = "#F87171" if diff>8 else ("#FBBF24" if diff>4 else "#34D399")
-    ins = ("🚨 Activate WhatsApp AI NDR + Order Confirmation Via AI immediately."
-           if diff>8 else ("⚠️ WhatsApp AI NDR will protect COD deliveries."
-           if diff>4 else "✅ COD risk is manageable."))
-    st.markdown(f"""
-    <div class="saas-card" style="padding:18px;">
-      <div style="color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;margin-bottom:12px;">COD RISK</div>
-      <div style="display:flex;justify-content:space-between;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #1F2937;">
-        <span style="color:#9CA3AF;font-size:0.82rem;">COD Premium vs Prepaid</span>
-        <span style="color:{cc};font-weight:800;font-size:1.2rem;">+{diff:.1f}%</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #1F2937;">
-        <span style="color:#9CA3AF;font-size:0.82rem;">COD NDR Active</span>
-        <span style="color:#FBBF24;font-weight:700;">{len(ndr_cod):,}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:14px;">
-        <span style="color:#9CA3AF;font-size:0.82rem;">Revenue at Risk</span>
-        <span style="color:#F87171;font-weight:700;">₹{int(m['rto_count']*m['avg_order_value']):,}</span>
-      </div>
-      <div style="background:#0B0F19;border-radius:8px;padding:10px;font-size:0.8rem;color:#D1D5DB;line-height:1.5;">{ins}</div>
-    </div>""", unsafe_allow_html=True)
+st.markdown("---")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3PL PERFORMANCE
+# CRITICAL ISSUES (from Agentic Ops — kept compact)
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div class='section-title'>🚚 3PL Courier Performance</div>", unsafe_allow_html=True)
-pl1,pl2 = st.columns(2)
-with pl1:
-    fig_del = px.bar(cour_perf.sort_values("delivery_rate"),
-        x="delivery_rate", y="courier", orientation="h", text_auto=".1f",
-        color="delivery_rate", color_continuous_scale=["#EF4444","#10B981"],
-        labels={"delivery_rate":"Delivery %","courier":""})
-    fig_del.update_layout(**_fig(max(240,len(cour_perf)*46)), showlegend=False, coloraxis_showscale=False,
-        title=dict(text="Delivery Rate % by Courier",font=dict(color="#FFFFFF",size=13)),
-        xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
-    st.plotly_chart(fig_del, use_container_width=True)
-
-with pl2:
-    fig_rto = px.bar(cour_perf.sort_values("rto_rate",ascending=False),
-        x="rto_rate", y="courier", orientation="h", text_auto=".1f",
-        color="rto_rate", color_continuous_scale=["#10B981","#EF4444"],
-        labels={"rto_rate":"RTO %","courier":""})
-    fig_rto.update_layout(**_fig(max(240,len(cour_perf)*46)), showlegend=False, coloraxis_showscale=False,
-        title=dict(text="RTO Rate % by Courier",font=dict(color="#FFFFFF",size=13)),
-        xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
-    st.plotly_chart(fig_rto, use_container_width=True)
-
-if len(cour_perf)>0:
-    best=cour_perf.sort_values("delivery_rate",ascending=False).iloc[0]
-    worst=cour_perf.sort_values("delivery_rate").iloc[0]
-    m1,m2,m3,m4 = st.columns(4)
-    m1.markdown(_card("Best Courier",    best["courier"],                        "#34D399", f"{best['delivery_rate']:.1f}%"), unsafe_allow_html=True)
-    m2.markdown(_card("Needs Attention", worst["courier"],                       "#F87171", f"{worst['delivery_rate']:.1f}%"), unsafe_allow_html=True)
-    m3.markdown(_card("Performance Gap", f"{best['delivery_rate']-worst['delivery_rate']:.1f}%","#FBBF24","best vs worst"), unsafe_allow_html=True)
-    m4.markdown(_card("3PL Partners",    str(len(cour_perf)),                   "#818CF8", "active couriers"), unsafe_allow_html=True)
+from utils.agent_ops import detect_critical_issues
+issues = detect_critical_issues(df, m, cour_df, state_df)
+if issues:
+    with st.expander(f"🚨 {len(issues)} Critical Issues Detected — Click to Escalate", expanded=False):
+        from utils.agent_ops import render_agent_ops
+        render_agent_ops(df, m, cour_df, state_df)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TOP SELLERS (admin multi-seller view)
+# SELLER INTELLIGENCE (tabs — shown only when seller selected)
+# ══════════════════════════════════════════════════════════════════════════════
+if is_admin and selected_seller != "📊 All Sellers":
+    with st.expander(f"🔬 Deep Seller Intelligence — {selected_seller}", expanded=False):
+        from utils.seller_intelligence import render_seller_intelligence
+        render_seller_intelligence(df, selected_seller,
+                                   compute_kpis(df_full)["delivery_pct"],
+                                   compute_kpis(df_full)["rto_pct"])
+elif not is_admin:
+    with st.expander("🔬 Seller Intelligence", expanded=False):
+        from utils.seller_intelligence import render_seller_intelligence
+        render_seller_intelligence(df, all_sellers[0] if all_sellers else "Your Account",
+                                   m["delivery_pct"], m["rto_pct"])
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ALL SELLERS TABLE (admin only — compact)
 # ══════════════════════════════════════════════════════════════════════════════
 if is_admin and selected_seller == "📊 All Sellers":
-    st.markdown("<div class='section-title'>🏆 Seller Performance</div>", unsafe_allow_html=True)
-    sg = df_full.groupby("seller_name").agg(
-        total    =("delivery_status","count"),
-        delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
-        rto      =("delivery_status", lambda x:(x=="RTO").sum()),
-    ).reset_index()
-    sg["delivery_rate"] = sg["delivered"]/sg["total"]*100
-    sg["rto_rate"]      = sg["rto"]/sg["total"]*100
-    sg = sg.sort_values("delivery_rate",ascending=False).reset_index(drop=True)
-
-    sl1,sl2 = st.columns([3,2])
-    with sl1:
-        fig_sl = px.bar(sg.sort_values("delivery_rate"),
-            x="delivery_rate", y="seller_name", orientation="h", text_auto=".1f",
-            color="delivery_rate", color_continuous_scale=["#EF4444","#10B981"],
-            labels={"delivery_rate":"Delivery %","seller_name":""})
-        fig_sl.update_layout(**_fig(max(240,len(sg)*52)), showlegend=False, coloraxis_showscale=False,
-            title=dict(text="Seller Delivery Rate %",font=dict(color="#FFFFFF",size=13)),
-            xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig_sl, use_container_width=True)
-
-    with sl2:
-        rows_html = ""
-        for i,row in sg.iterrows():
-            m = ["🥇","🥈","🥉"][i] if i<3 else f"{i+1}."
-            c = "#34D399" if row["delivery_rate"]>=80 else ("#FBBF24" if row["delivery_rate"]>=65 else "#F87171")
-            rows_html += f"""<div style="display:flex;justify-content:space-between;align-items:center;
-                padding:9px 4px;border-bottom:1px solid #1F2937;">
-              <div style="color:#FFFFFF;font-size:0.82rem;">{m} {row['seller_name']}</div>
-              <div style="display:flex;gap:10px;">
-                <span style="color:{c};font-weight:700;font-size:0.85rem;">{row['delivery_rate']:.1f}%</span>
-                <span style="color:#F87171;font-size:0.77rem;">RTO {row['rto_rate']:.1f}%</span>
-              </div></div>"""
-        st.markdown(f'<div class="saas-card" style="padding:14px;">'
-                    f'<div style="color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;margin-bottom:8px;">SCOREBOARD</div>'
-                    f'{rows_html}</div>', unsafe_allow_html=True)
-
-# Reset m for sections below (in case seller was selected)
-m = compute_kpis(df)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TOP PRODUCTS + PRICING BAND — AI INSIGHTS (text, not charts)
-# ══════════════════════════════════════════════════════════════════════════════
-if "product_name" in df.columns:
-    seller_label = selected_seller if (is_admin and selected_seller != "📊 All Sellers") else None
-    st.markdown(
-        f"<div class='section-title'>📦 Product Intelligence"
-        f"{' — ' + seller_label if seller_label else ''}</div>",
-        unsafe_allow_html=True)
-
-    # ── compute product table ─────────────────────────────────────────────────
-    pg_df = df.groupby("product_name").agg(
-        total    =("delivery_status","count"),
-        delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
-        rto      =("delivery_status", lambda x:(x=="RTO").sum()),
-        ndr      =("delivery_status", lambda x:(x=="NDR").sum()),
-        cod      =("payment_type",    lambda x:(x=="COD").sum()),
-        revenue  =("order_value","sum"),
-        avg_val  =("order_value","mean"),
-    ).reset_index()
-    pg_df["dr"]      = pg_df["delivered"] / pg_df["total"].clip(lower=1) * 100
-    pg_df["rr"]      = pg_df["rto"]       / pg_df["total"].clip(lower=1) * 100
-    pg_df["cod_pct"] = pg_df["cod"]       / pg_df["total"].clip(lower=1) * 100
-    avg_dr = m["delivery_pct"]; avg_rr = m["rto_pct"]
-
-    # check NDD zones
-    ndd_partners = ["Elastic Run", "PiknDel", "Blitz"]
-    zone_col = "zone" if "zone" in df.columns else ("standard_zone" if "standard_zone" in df.columns else None)
-    zone_ab_pct = 0
-    if zone_col:
-        zone_ab = df[df[zone_col].astype(str).str.upper().isin(["A","B","ZONE A","ZONE B"])]
-        zone_ab_pct = len(zone_ab) / max(len(df),1) * 100
-
-    top5 = pg_df.sort_values("total", ascending=False).head(5)
-    pi1, pi2 = st.columns([3, 2])
-
-    with pi1:
-        st.markdown(
-            "<div style='color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;"
-            "letter-spacing:0.05em;margin-bottom:10px;'>TOP 5 PRODUCTS — AI INSIGHTS</div>",
-            unsafe_allow_html=True)
-        for rank, (_, row) in enumerate(top5.iterrows(), 1):
-            dr_icon = "✅" if row["dr"] >= avg_dr else ("⚠️" if row["dr"] >= avg_dr-10 else "🚨")
-            dr_col  = "#34D399" if row["dr"] >= avg_dr else ("#FBBF24" if row["dr"] >= avg_dr-10 else "#F87171")
-
-            # generate personalized insight
-            if row["rr"] > avg_rr * 1.5 and row["cod_pct"] > 65:
-                tip  = "💡 High RTO + High COD — activate <b>Order Confirmation Via AI</b> before dispatch"
-                tip_c= "#FBBF24"
-            elif row["rr"] > avg_rr * 1.5:
-                tip  = "💡 High RTO — restrict COD in UP/Bihar; try <b>AI Calling</b> for NDR recovery"
-                tip_c= "#F87171"
-            elif row["ndr"] > row["total"] * 0.15:
-                tip  = "💡 High NDR — activate <b>WhatsApp AI NDR</b> messaging for failed deliveries"
-                tip_c= "#FBBF24"
-            elif row["dr"] >= avg_dr + 5 and zone_ab_pct > 30:
-                tip  = f"💡 Top performer — consider <b>NDD</b> (Elastic Run/PiknDel) for Zone A/B orders"
-                tip_c= "#34D399"
-            else:
-                tip  = f"💡 Near average — <b>WhatsApp NDR</b> can recover ~{int(row['rto']*0.08):,} RTOs/month"
-                tip_c= "#818CF8"
-
-            st.markdown(f"""
-            <div style="background:#111827;border:1px solid #1F2937;border-radius:10px;
-                        padding:12px 16px;margin-bottom:8px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <span style="color:#FFFFFF;font-weight:700;font-size:0.9rem;">
-                  {rank}. {row['product_name']}</span>
-                <span style="color:{dr_col};font-weight:800;font-size:0.95rem;">{row['dr']:.0f}% {dr_icon}</span>
-              </div>
-              <div style="display:flex;gap:16px;font-size:0.8rem;color:#9CA3AF;margin-bottom:8px;">
-                <span>{row['total']:,} orders</span>
-                <span>RTO <b style="color:#F87171;">{row['rr']:.0f}%</b></span>
-                <span>NDR <b style="color:#FBBF24;">{row['ndr']:,}</b></span>
-                <span>COD <b style="color:#C084FC;">{row['cod_pct']:.0f}%</b></span>
-                <span>₹{row['avg_val']:,.0f} avg</span>
-              </div>
-              <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:7px 10px;
-                          font-size:0.78rem;color:{tip_c};">{tip}</div>
-            </div>""", unsafe_allow_html=True)
-
-    with pi2:
-        st.markdown(
-            "<div style='color:#9CA3AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;"
-            "letter-spacing:0.05em;margin-bottom:10px;'>PRICING BAND INSIGHTS</div>",
-            unsafe_allow_html=True)
-        bins  = [0,499,999,1999,4999,float("inf")]
-        blbls = ["₹0–499","₹500–999","₹1K–2K","₹2K–5K","₹5K+"]
-        df_pb = df.copy()
-        df_pb["pb"] = pd.cut(df_pb["order_value"],bins=bins,labels=blbls,right=True)
-        pb = df_pb.groupby("pb",observed=True).agg(
+    with st.expander("🏆 All Sellers — Performance Overview", expanded=True):
+        sg = df_full.groupby("seller_name").agg(
             total    =("delivery_status","count"),
             delivered=("delivery_status", lambda x:(x=="Delivered").sum()),
             rto      =("delivery_status", lambda x:(x=="RTO").sum()),
-            cod      =("payment_type",    lambda x:(x=="COD").sum()),
+            ndr      =("ndr_status",      lambda x:(x=="Raised").sum()) if "ndr_status" in df_full.columns
+                       else ("delivery_status","count"),
         ).reset_index()
-        pb["dr"]      = pb["delivered"] / pb["total"].clip(lower=1) * 100
-        pb["rr"]      = pb["rto"]       / pb["total"].clip(lower=1) * 100
-        pb["cod_pct"] = pb["cod"]       / pb["total"].clip(lower=1) * 100
+        sg["dr"]  = sg["delivered"]/sg["total"].clip(lower=1)*100
+        sg["rr"]  = sg["rto"]/sg["total"].clip(lower=1)*100
+        sg["ndrr"]= sg["ndr"]/sg["total"].clip(lower=1)*100
+        sg = sg.sort_values("dr", ascending=False).reset_index(drop=True)
 
-        for _, row in pb.iterrows():
-            if row["total"] == 0: continue
-            e  = "🚨" if row["rr"]>30 else ("⚠️" if row["rr"]>20 else "✅")
-            ec = "#F87171" if row["rr"]>30 else ("#FBBF24" if row["rr"]>20 else "#34D399")
-            if row["rr"] > 30 and row["cod_pct"] > 60:
-                tip = "Restrict COD + Order Confirmation Via AI"
-            elif row["rr"] > 20:
-                tip = "Restrict COD for high-risk states in this band"
-            elif row["dr"] > 85:
-                tip = "Strong band — NDD upgrade for Zone A/B"
-            else:
-                tip = "WhatsApp NDR for failed COD deliveries"
-            st.markdown(f"""
-            <div style="background:#111827;border:1px solid #1F2937;border-radius:8px;
-                        padding:10px 14px;margin-bottom:6px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <b style="color:#FFFFFF;font-size:0.88rem;">{e} {row['pb']}</b>
-                <span style="color:{ec};font-weight:700;font-size:0.88rem;">{row['dr']:.0f}% del</span>
-              </div>
-              <div style="font-size:0.77rem;color:#9CA3AF;margin:4px 0;">
-                {row['total']:,} orders · RTO <b style="color:{ec};">{row['rr']:.0f}%</b>
-                · COD <b>{row['cod_pct']:.0f}%</b>
-              </div>
-              <div style="font-size:0.76rem;color:#818CF8;margin-top:4px;">💡 {tip}</div>
-            </div>""", unsafe_allow_html=True)
-
-        # NDD opportunity callout
-        if zone_ab_pct > 0:
-            st.markdown(f"""
-            <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);
-                        border-radius:8px;padding:10px 14px;margin-top:8px;">
-              <div style="color:#34D399;font-weight:700;font-size:0.82rem;margin-bottom:4px;">
-                🚀 NDD Opportunity</div>
-              <div style="color:#9CA3AF;font-size:0.78rem;line-height:1.5;">
-                <b style="color:#FFFFFF;">{zone_ab_pct:.0f}%</b> of shipments in Zone A/B<br>
-                Partners: <b>Elastic Run · PiknDel · Blitz</b><br>
-                Next day delivery → fewer NDRs, happier customers
-              </div>
-            </div>""", unsafe_allow_html=True)
+        rows_html = ""
+        for i, row in sg.iterrows():
+            hs_s  = compute_health_score({"delivery_pct":row["dr"],"rto_pct":row["rr"],
+                                           "ndr_pct":row["ndrr"],"cod_pct":60,
+                                           "vas_adoption_score":30,"courier_score_variance":10})
+            hc = "#34D399" if hs_s>=80 else ("#FBBF24" if hs_s>=65 else "#F87171")
+            dc = "#34D399" if row["dr"]>=80 else ("#FBBF24" if row["dr"]>=65 else "#F87171")
+            rc = "#F87171" if row["rr"]>25 else ("#FBBF24" if row["rr"]>15 else "#34D399")
+            medal = ["🥇","🥈","🥉"][i] if i < 3 else f"#{i+1}"
+            rows_html += (
+                f'<div style="display:flex;align-items:center;padding:9px 12px;'
+                f'border-bottom:1px solid #1F2937;gap:12px;">'
+                f'<div style="width:28px;text-align:center;font-size:0.9rem;">{medal}</div>'
+                f'<div style="flex:3;color:#FFFFFF;font-weight:600;font-size:0.85rem;">{row["seller_name"]}</div>'
+                f'<div style="flex:1;text-align:right;color:#9CA3AF;font-size:0.82rem;">{int(row["total"]):,}</div>'
+                f'<div style="flex:1;text-align:right;color:{dc};font-weight:700;font-size:0.88rem;">{row["dr"]:.0f}%</div>'
+                f'<div style="flex:1;text-align:right;color:{rc};font-size:0.82rem;">{row["rr"]:.0f}%</div>'
+                f'<div style="flex:1;text-align:right;color:{hc};font-weight:700;font-size:0.82rem;">{hs_s:.0f}/100</div>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div style="background:#111827;border:1px solid #1F2937;border-radius:10px;overflow:hidden;">'
+            f'<div style="display:flex;padding:8px 12px;background:#1F2937;gap:12px;">'
+            f'<div style="width:28px;"></div>'
+            f'<div style="flex:3;color:#6B7280;font-size:0.72rem;font-weight:700;text-transform:uppercase;">Seller</div>'
+            f'<div style="flex:1;text-align:right;color:#6B7280;font-size:0.72rem;font-weight:700;text-transform:uppercase;">Shipments</div>'
+            f'<div style="flex:1;text-align:right;color:#6B7280;font-size:0.72rem;font-weight:700;text-transform:uppercase;">Delivery%</div>'
+            f'<div style="flex:1;text-align:right;color:#6B7280;font-size:0.72rem;font-weight:700;text-transform:uppercase;">RTO%</div>'
+            f'<div style="flex:1;text-align:right;color:#6B7280;font-size:0.72rem;font-weight:700;text-transform:uppercase;">Health</div>'
+            f'</div>{rows_html}</div>',
+            unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SELLER INTELLIGENCE LAYER (shown when a specific seller is selected)
+# 3PL COURIER INTELLIGENCE  (compact — 2 bars only)
 # ══════════════════════════════════════════════════════════════════════════════
-if is_admin and selected_seller != "📊 All Sellers":
-    st.markdown("<div class='section-title'>🔬 Seller Intelligence</div>",
+with st.expander("🚚 Courier Intelligence", expanded=False):
+    if _has_cour:
+        _lyt = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="#F3F4F6", height=260, showlegend=False, coloraxis_showscale=False,
+                    margin=dict(l=0,r=0,t=36,b=0))
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            fig = px.bar(cour_df.sort_values("delivery_rate"), x="delivery_rate", y="courier",
+                         orientation="h", text_auto=".0f",
+                         color="delivery_rate", color_continuous_scale=["#EF4444","#10B981"],
+                         labels={"delivery_rate":"Delivery %","courier":""})
+            fig.update_layout(**_lyt, title=dict(text="Delivery % by Courier",font=dict(color="#FFFFFF",size=12)),
+                              xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
+            st.plotly_chart(fig, use_container_width=True)
+        with cc2:
+            fig2 = px.bar(cour_df.sort_values("rto_rate",ascending=False), x="rto_rate", y="courier",
+                          orientation="h", text_auto=".0f",
+                          color="rto_rate", color_continuous_scale=["#10B981","#EF4444"],
+                          labels={"rto_rate":"RTO %","courier":""})
+            fig2.update_layout(**_lyt, title=dict(text="RTO % by Courier",font=dict(color="#FFFFFF",size=12)),
+                               xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
+            st.plotly_chart(fig2, use_container_width=True)
+        # Concentration alert
+        if conc.get("is_concentrated"):
+            st.markdown(
+                f'<div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);'
+                f'border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#F87171;">'
+                f'⚠️ <b>Courier Concentration Risk:</b> {conc["dominant_pct"]:.0f}% on {conc["dominant_courier"]}. '
+                f'Activate Multi-Courier Allocation. Add ElasticRun / PiknDel / Blitz.</div>',
                 unsafe_allow_html=True)
-    render_seller_intelligence(
-        df=df,
-        seller_name=selected_seller,
-        overall_delivery_pct=compute_kpis(df_full)["delivery_pct"],
-        overall_rto_pct=compute_kpis(df_full)["rto_pct"],
-    )
-elif not is_admin:
-    # Single-seller mode — always show intelligence
-    st.markdown("<div class='section-title'>🔬 Seller Intelligence</div>",
-                unsafe_allow_html=True)
-    render_seller_intelligence(
-        df=df,
-        seller_name=all_sellers[0] if all_sellers else "Your Account",
-        overall_delivery_pct=m["delivery_pct"],
-        overall_rto_pct=m["rto_pct"],
-    )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GEOGRAPHIC RTO
+# FLOATING JAGAU AI BUTTON
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div class='section-title'>🗺️ Geographic RTO Analysis</div>", unsafe_allow_html=True)
-geo1,geo2 = st.columns(2)
-with geo1:
-    if len(state_perf)>0:
-        fig_st = px.bar(state_perf.sort_values("rto_rate",ascending=False).head(8).sort_values("rto_rate"),
-            x="rto_rate", y="state", orientation="h", text_auto=".1f",
-            color="rto_rate", color_continuous_scale=["#F59E0B","#EF4444"],
-            labels={"rto_rate":"RTO %","state":""})
-        fig_st.update_layout(**_fig(300), showlegend=False, coloraxis_showscale=False,
-            title=dict(text="Worst States by RTO %",font=dict(color="#FFFFFF",size=13)),
-            xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig_st, use_container_width=True)
-
-with geo2:
-    if "payment_type" in df.columns:
-        sc2 = df[df["payment_type"]=="COD"].groupby("state").agg(
-            total=("delivery_status","count"),
-            rto  =("delivery_status", lambda x:(x=="RTO").sum()),
-        ).reset_index()
-        sc2["cod_rto"] = sc2["rto"]/sc2["total"].clip(lower=1)*100
-        fig_c2 = px.bar(sc2.nlargest(8,"cod_rto").sort_values("cod_rto"),
-            x="cod_rto", y="state", orientation="h", text_auto=".1f",
-            color="cod_rto", color_continuous_scale=["#FBBF24","#EF4444"],
-            labels={"cod_rto":"COD RTO %","state":""})
-        fig_c2.update_layout(**_fig(300), showlegend=False, coloraxis_showscale=False,
-            title=dict(text="Worst States — COD RTO %",font=dict(color="#FFFFFF",size=13)),
-            xaxis=dict(gridcolor="#1F2937",ticksuffix="%"), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig_c2, use_container_width=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VAS RECOMMENDATIONS
-# ══════════════════════════════════════════════════════════════════════════════
-if recs:
-    st.markdown("<div class='section-title'>💡 GDI Recommended VAS Actions</div>", unsafe_allow_html=True)
-    rc = st.columns(min(len(recs),4))
-    for i,rec in enumerate(recs[:4]):
-        rc[i].markdown(f"""
-        <div class="saas-card" style="border:1px solid {rec['color']}35;">
-          <span class="badge-recommend">{rec['badge']}</span>
-          <h4 style="color:#FFFFFF;margin:10px 0 6px;font-size:0.95rem;">{rec['name']}</h4>
-          <p style="color:#9CA3AF;font-size:0.8rem;margin:0 0 12px;">{rec['impact']}</p>
-          <div style="border-top:1px solid #1F2937;padding-top:10px;">
-            <span style="font-size:0.7rem;color:#34D399;text-transform:uppercase;font-weight:600;">Revenue Unlock</span>
-            <div style="font-size:1.15rem;font-weight:700;color:#34D399;">₹{rec['revenue']:,}</div>
-          </div>
-        </div>""", unsafe_allow_html=True)
-
-# ── Ask GDI Agent inline button (opens dialog popup, no page redirect) ────────
 render_chat_button(df)
